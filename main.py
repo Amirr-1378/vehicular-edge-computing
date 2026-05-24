@@ -3,12 +3,14 @@ from mec_side import (
     UserVehicle,
     add_block_to_capacity_chain,
     add_to_pending_capacity_records,
+    broadcast_capacity_info,
     capacity_chain,
     consensus_process,
     create_capacity_record,
     pending_capacity_records,
     verify_certificate,
 )
+from user_side import receive_capacity_info, select_available_candidate
 
 # =========================================================
 # BLOCK 21: Main Flow Initialization
@@ -74,6 +76,30 @@ def main():
 
     print("\n[Main] Capacity Chain:")
     print(capacity_chain)
+
+    # =========================================================
+    # BLOCK 24: Broadcast Capacity Information to User Vehicle
+    # =========================================================
+
+    broadcasted_capacity_info = broadcast_capacity_info()
+
+    received_capacity_info = receive_capacity_info(broadcasted_capacity_info)
+
+    print("\n[Main] Received Capacity Information:")
+    print(received_capacity_info)
+
+    # =========================================================
+    # BLOCK 25: Select Available Candidate Server Vehicle
+    # =========================================================
+
+    selected_candidate = select_available_candidate(
+        user_vehicle=user_vehicle,
+        capacity_records=received_capacity_info,
+        service_records=[],
+    )
+
+    print("\n[Main] Selected Candidate:")
+    print(selected_candidate)
 
 
 if __name__ == "__main__":
