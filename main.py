@@ -17,10 +17,12 @@ from user_side import (
     calculate_payoff,
     calculate_utility,
     calculate_v2v_latency,
+    execute_task_on_mec,
     make_offloading_decision,
     receive_capacity_info,
     run_best_response_until_convergence,
     select_available_candidate,
+    send_service_request_to_mec,
 )
 
 # =========================================================
@@ -280,6 +282,31 @@ def main():
 
     print("\n[Main] Final Offloading Decision:")
     print(offloading_decision)
+
+    # =========================================================
+    # BLOCK 30: MEC Execution or V2V Service Request
+    # =========================================================
+
+    if offloading_decision == "MEC":
+
+        mec_execution_result = execute_task_on_mec(
+            user_vehicle=user_vehicle,
+            mec_latency=mec_latency,
+        )
+
+        print("\n[Main] MEC Execution Result:")
+        print(mec_execution_result)
+
+    else:
+
+        service_request = send_service_request_to_mec(
+            user_vehicle=user_vehicle,
+            candidate=selected_candidate,
+            estimated_duration=v2v_latency,
+        )
+
+        print("\n[Main] Service Request:")
+        print(service_request)
 
 
 if __name__ == "__main__":
