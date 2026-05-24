@@ -17,7 +17,9 @@ from user_side import (
     calculate_payoff,
     calculate_utility,
     calculate_v2v_latency,
+    make_offloading_decision,
     receive_capacity_info,
+    run_best_response_until_convergence,
     select_available_candidate,
 )
 
@@ -248,6 +250,36 @@ def main():
 
     print("\n[Main] Payoff:")
     print(payoff)
+
+    # =========================================================
+    # BLOCK 28: Best Response Update and Convergence
+    # =========================================================
+
+    converged_probability = run_best_response_until_convergence(
+        mec_latency=mec_latency,
+        v2v_latency=v2v_latency,
+        deadline=deadline,
+        value_factor=value_factor,
+        service_quality=selected_candidate.quality,
+        price_ratio=price_ratio,
+        arrival_rates=arrival_rates,
+        initial_probabilities=initial_probabilities,
+        current_vehicle_index=current_vehicle_index,
+    )
+
+    print("\n[Main] Converged Probability p_i:")
+    print(converged_probability)
+
+    # =========================================================
+    # BLOCK 29: Final Offloading Decision
+    # =========================================================
+
+    offloading_decision = make_offloading_decision(
+        probability_mec=converged_probability,
+    )
+
+    print("\n[Main] Final Offloading Decision:")
+    print(offloading_decision)
 
 
 if __name__ == "__main__":
