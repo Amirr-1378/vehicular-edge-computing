@@ -2,12 +2,17 @@ from mec_side import (
     ServerVehicle,
     UserVehicle,
     add_block_to_capacity_chain,
+    add_block_to_service_chain,
     add_to_pending_capacity_records,
+    add_to_pending_service_records,
     broadcast_capacity_info,
     capacity_chain,
     consensus_process,
     create_capacity_record,
+    create_service_record,
     pending_capacity_records,
+    pending_service_records,
+    service_chain,
     verify_certificate,
 )
 from user_side import (
@@ -307,6 +312,23 @@ def main():
 
         print("\n[Main] Service Request:")
         print(service_request)
+
+        # =========================================================
+        # BLOCK 31: Service Record Creation and Service Chain Update
+        # =========================================================
+
+        service_record = create_service_record(
+            service_request=service_request,
+            service_id=1,
+        )
+
+        add_to_pending_service_records(service_record)
+
+        if consensus_process(pending_service_records):
+            add_block_to_service_chain(pending_service_records)
+
+        print("\n[Main] Service Chain:")
+        print(service_chain)
 
 
 if __name__ == "__main__":
