@@ -10,9 +10,11 @@ from mec_side import (
     consensus_process,
     create_capacity_record,
     create_service_record,
+    execute_task_on_server_vehicle,
     pending_capacity_records,
     pending_service_records,
     service_chain,
+    update_capacity_after_execution,
     verify_certificate,
 )
 from user_side import (
@@ -329,6 +331,25 @@ def main():
 
         print("\n[Main] Service Chain:")
         print(service_chain)
+
+        # =========================================================
+        # BLOCK 32: Server Vehicle Execution and Capacity Update
+        # =========================================================
+
+        server_execution_result = execute_task_on_server_vehicle(
+            service_record=service_record,
+        )
+
+        print("\n[Main] Server Vehicle Execution Result:")
+        print(server_execution_result)
+
+        updated_capacity_records = update_capacity_after_execution(
+            provider_id=service_record.provider,
+            used_duration=service_record.duration,
+        )
+
+        print("\n[Main] Updated Capacity Records:")
+        print(updated_capacity_records)
 
 
 if __name__ == "__main__":
