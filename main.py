@@ -321,7 +321,6 @@ def main():
 
         service_record = create_service_record(
             service_request=service_request,
-            service_id=1,
         )
 
         add_to_pending_service_records(service_record)

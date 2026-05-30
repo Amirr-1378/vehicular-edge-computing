@@ -186,11 +186,30 @@ def broadcast_capacity_info():
 pending_service_records = []
 service_chain = []
 
+# =========================================================
+# BLOCK 35: Automatic Service ID Generation
+# =========================================================
+
+
+def generate_service_id() -> int:
+
+    confirmed_records_count = 0
+
+    for block in service_chain:
+        confirmed_records_count += len(block["records"])
+
+    pending_records_count = len(pending_service_records)
+
+    service_id = 2000 + confirmed_records_count + pending_records_count + 1
+
+    return service_id
+
 
 def create_service_record(
     service_request: dict,
-    service_id: int,
 ) -> ServiceRecord:
+
+    service_id = generate_service_id()
 
     service_record = ServiceRecord(
         timestamp=time.time(),
