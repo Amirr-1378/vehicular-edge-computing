@@ -303,3 +303,63 @@ def update_capacity_after_execution(
         )
 
     return updated_records
+
+
+# =========================================================
+# BLOCK 33: Create Updated Capacity Record After Execution
+# =========================================================
+
+
+def find_latest_capacity_record(
+    provider_id: int,
+) -> CapacityRecord | None:
+
+    for block in reversed(capacity_chain):
+
+        for record in reversed(block["records"]):
+
+            if record.provider == provider_id:
+                return record
+
+    return None
+
+
+def create_updated_capacity_record_after_execution(
+    provider_id: int,
+    used_duration: float,
+    new_record_id: int,
+) -> CapacityRecord | None:
+
+    latest_record = find_latest_capacity_record(
+        provider_id=provider_id,
+    )
+
+    if latest_record is None:
+        print(
+            f"[Capacity Update] No previous capacity record found "
+            f"for Provider {provider_id}."
+        )
+        return None
+
+    updated_period = max(
+        0.0,
+        latest_record.period - used_duration,
+    )
+
+    updated_record = CapacityRecord(
+        timestamp=time.time(),
+        record_id=new_record_id,
+        provider=latest_record.provider,
+        resource=latest_record.resource,
+        trajectory=latest_record.trajectory,
+        price=latest_record.price,
+        period=updated_period,
+        quality=latest_record.quality,
+    )
+
+    print(
+        f"[Capacity Update] New capacity record created for "
+        f"Provider {provider_id} with remaining period {updated_period:.6f}."
+    )
+
+    return updated_record

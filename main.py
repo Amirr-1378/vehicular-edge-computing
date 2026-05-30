@@ -10,11 +10,11 @@ from mec_side import (
     consensus_process,
     create_capacity_record,
     create_service_record,
+    create_updated_capacity_record_after_execution,
     execute_task_on_server_vehicle,
     pending_capacity_records,
     pending_service_records,
     service_chain,
-    update_capacity_after_execution,
     verify_certificate,
 )
 from user_side import (
@@ -343,13 +343,33 @@ def main():
         print("\n[Main] Server Vehicle Execution Result:")
         print(server_execution_result)
 
-        updated_capacity_records = update_capacity_after_execution(
+        #        updated_capacity_records = update_capacity_after_execution(
+        #            provider_id=service_record.provider,
+        #            used_duration=service_record.duration,
+        #        )
+
+        #        print("\n[Main] Updated Capacity Records:")
+        #        print(updated_capacity_records)
+
+        # =========================================================
+        # BLOCK 34: Blockchain-Based Capacity Update After Execution
+        # =========================================================
+
+        new_capacity_record = create_updated_capacity_record_after_execution(
             provider_id=service_record.provider,
             used_duration=service_record.duration,
+            new_record_id=3,
         )
 
-        print("\n[Main] Updated Capacity Records:")
-        print(updated_capacity_records)
+        if new_capacity_record is not None:
+
+            add_to_pending_capacity_records(new_capacity_record)
+
+            if consensus_process(pending_capacity_records):
+                add_block_to_capacity_chain(pending_capacity_records)
+
+        print("\n[Main] Capacity Chain After Execution:")
+        print(capacity_chain)
 
 
 if __name__ == "__main__":
