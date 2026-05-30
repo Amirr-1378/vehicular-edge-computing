@@ -76,20 +76,15 @@ def main():
     # BLOCK 23: Capacity Record Creation and Capacity Chain Update
     # =========================================================
 
-    record_id = 1
-
     for server_vehicle in server_vehicles:
 
         if verify_certificate(server_vehicle):
 
             capacity_record = create_capacity_record(
                 server_vehicle=server_vehicle,
-                record_id=record_id,
             )
 
             add_to_pending_capacity_records(capacity_record)
-
-            record_id += 1
 
     if consensus_process(pending_capacity_records):
         add_block_to_capacity_chain(pending_capacity_records)
@@ -357,7 +352,6 @@ def main():
         new_capacity_record = create_updated_capacity_record_after_execution(
             provider_id=service_record.provider,
             used_duration=service_record.duration,
-            new_record_id=3,
         )
 
         if new_capacity_record is not None:

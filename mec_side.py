@@ -82,10 +82,11 @@ def verify_certificate(server_vehicle: ServerVehicle) -> bool:
 
 def create_capacity_record(
     server_vehicle: ServerVehicle,
-    record_id: int,
 ) -> CapacityRecord:
 
     dynamic_price = server_vehicle.price_init * server_vehicle.quality
+
+    record_id = generate_capacity_record_id()
 
     record = CapacityRecord(
         timestamp=time.time(),
@@ -149,6 +150,25 @@ def add_block_to_capacity_chain(pending_records: list[CapacityRecord]):
 
     print(f"[Capacity Chain] Block {block_id} added successfully.")
     print("[Capacity Chain] Pending capacity records cleared.")
+
+
+# =========================================================
+# BLOCK 36: Automatic Capacity Record ID Generation
+# =========================================================
+
+
+def generate_capacity_record_id() -> int:
+
+    confirmed_records_count = 0
+
+    for block in capacity_chain:
+        confirmed_records_count += len(block["records"])
+
+    pending_records_count = len(pending_capacity_records)
+
+    record_id = 1000 + confirmed_records_count + pending_records_count + 1
+
+    return record_id
 
 
 # =========================================================
@@ -346,8 +366,9 @@ def find_latest_capacity_record(
 def create_updated_capacity_record_after_execution(
     provider_id: int,
     used_duration: float,
-    new_record_id: int,
 ) -> CapacityRecord | None:
+
+    new_record_id = generate_capacity_record_id()
 
     latest_record = find_latest_capacity_record(
         provider_id=provider_id,
