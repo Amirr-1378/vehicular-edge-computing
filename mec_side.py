@@ -258,6 +258,21 @@ def add_to_pending_service_records(service_record: ServiceRecord):
 
 
 # =========================================================
+# BLOCK 37: Get Confirmed Service Records from Service Chain
+# =========================================================
+
+
+def get_confirmed_service_records() -> list[ServiceRecord]:
+
+    confirmed_service_records = []
+
+    for block in service_chain:
+        confirmed_service_records.extend(block["records"])
+
+    return confirmed_service_records
+
+
+# =========================================================
 # BLOCK 17: Consensus Process and Service Chain Update
 # =========================================================
 

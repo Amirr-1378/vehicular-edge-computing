@@ -12,6 +12,7 @@ from mec_side import (
     create_service_record,
     create_updated_capacity_record_after_execution,
     execute_task_on_server_vehicle,
+    get_confirmed_service_records,
     pending_capacity_records,
     pending_service_records,
     service_chain,
@@ -33,6 +34,14 @@ from user_side import (
 )
 
 # =========================================================
+# BLOCK 38: Simulation Parameters
+# =========================================================
+
+NUM_TASKS = 100
+
+simulation_results = []
+
+# =========================================================
 # BLOCK 21: Main Flow Initialization
 # =========================================================
 
@@ -40,6 +49,8 @@ from user_side import (
 def main():
 
     print("Simulation started.")
+
+    task_counter = 1
 
     # =========================================================
     # BLOCK 22: Simulation Entities and Initial Parameters
@@ -71,6 +82,8 @@ def main():
 
     print("[Main] Server vehicles initialized.")
     print("[Main] User vehicle initialized.")
+
+    print(f"\n========== TASK {task_counter} ==========")
 
     # =========================================================
     # BLOCK 23: Capacity Record Creation and Capacity Chain Update
@@ -107,10 +120,12 @@ def main():
     # BLOCK 25: Select Available Candidate Server Vehicle
     # =========================================================
 
+    confirmed_service_records = get_confirmed_service_records()
+
     selected_candidate = select_available_candidate(
         user_vehicle=user_vehicle,
         capacity_records=received_capacity_info,
-        service_records=[],
+        service_records=confirmed_service_records,
     )
 
     print("\n[Main] Selected Candidate:")
@@ -363,6 +378,50 @@ def main():
 
         print("\n[Main] Capacity Chain After Execution:")
         print(capacity_chain)
+
+        # =========================================================
+        # BLOCK 40: Store Task Result for Later Analysis
+        # =========================================================
+
+        task_result = {
+            "task_id": task_counter,
+            "selected_provider": selected_candidate.provider,
+            "mec_latency": mec_latency,
+            "v2v_latency": v2v_latency,
+            "utility": utility,
+            "cost": cost,
+            "payoff": payoff,
+            "converged_probability": converged_probability,
+            "offloading_decision": offloading_decision,
+        }
+
+        simulation_results.append(task_result)
+
+        print("\n[Main] Task Result:")
+        print(task_result)
+
+        # =========================================================
+        # BLOCK 41: Simulation Summary
+        # =========================================================
+
+        print("\n==============================")
+        print("SIMULATION SUMMARY")
+        print("==============================")
+
+        print(f"Number of completed tasks: {len(simulation_results)}")
+
+        if len(simulation_results) > 0:
+
+            average_latency = sum(
+                result["mec_latency"] for result in simulation_results
+            ) / len(simulation_results)
+
+            average_payoff = sum(
+                result["payoff"] for result in simulation_results
+            ) / len(simulation_results)
+
+            print(f"Average MEC Latency: {average_latency:.6f}")
+            print(f"Average Payoff: {average_payoff:.6f}")
 
 
 if __name__ == "__main__":
