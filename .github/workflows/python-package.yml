@@ -80,6 +80,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: simulation-run-output
+          name: simulation-run-output-${{github.run_number}}
           path: reports/run-output.txt
           if-no-files-found: warn
