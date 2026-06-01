@@ -1,8 +1,4 @@
-numpy==2.1.3
-pandas==2.2.3
-pyyaml>=6.0
-scikit-learn==1.5.2
-Dataclass
-Time
-math
-random
+# External Python packages required by the current simulation.
+# The current code uses only Python standard-library modules:
+# dataclasses, time, math, random.
+# Add third-party packages here later if the reproduction code starts using them.
