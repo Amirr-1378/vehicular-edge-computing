@@ -54,6 +54,16 @@ class ServiceRecord:
 
 
 # =========================================================
+# BLOCK 42: MEC Node Model for Proof of Service
+# =========================================================
+@dataclass
+class MECNode:
+    node_id: int
+    redundant_resource: float
+    is_leader: bool = False
+
+
+# =========================================================
 # BLOCK 2: Certificate Verification and Capacity Record Creation
 # =========================================================
 
@@ -107,6 +117,117 @@ def add_to_pending_capacity_records(record: CapacityRecord):
     pending_capacity_records.append(record)
 
     print(f"[Record {record.record_id}] " f"Added to pending capacity records.")
+
+
+# =========================================================
+# BLOCK 43: Leader Selection by Proof of Service
+# =========================================================
+
+
+def select_leader_by_pos(mec_nodes: list[MECNode]) -> MECNode:
+
+    leader = max(mec_nodes, key=lambda node: node.redundant_resource)
+
+    leader.is_leader = True
+
+    print(
+        f"[PoS] Leader selected: MEC {leader.node_id} "
+        f"(resource={leader.redundant_resource})"
+    )
+
+    return leader
+
+
+# =========================================================
+# BLOCK 46: PBFT Pre-Prepare Phase
+# =========================================================
+
+
+def pre_prepare_phase(
+    leader_node: MECNode,
+    mec_nodes: list[MECNode],
+    pending_records: list,
+    next_block_id: int,
+) -> dict | None:
+
+    if len(pending_records) == 0:
+        print("[Pre-Prepare] No pending records available.")
+        return None
+
+    proposed_block = {
+        "block_id": next_block_id,
+        "leader_id": leader_node.node_id,
+        "records": pending_records.copy(),
+    }
+
+    print(
+        f"[Pre-Prepare] Leader MEC {leader_node.node_id} "
+        f"generated proposed Block {next_block_id}."
+    )
+
+    for node in mec_nodes:
+
+        if node.node_id != leader_node.node_id:
+            print(
+                f"[Pre-Prepare] Proposed Block {next_block_id} "
+                f"sent from Leader MEC {leader_node.node_id} "
+                f"to MEC {node.node_id}."
+            )
+
+    return proposed_block
+
+
+# =========================================================
+# BLOCK 47: PBFT Prepare Phase
+# =========================================================
+
+
+def prepare_phase(
+    mec_nodes: list[MECNode],
+    proposed_block: dict | None,
+) -> list[dict]:
+
+    prepare_messages = []
+
+    if proposed_block is None:
+        print("[Prepare] No proposed block received.")
+        return prepare_messages
+
+    block_id = proposed_block["block_id"]
+    leader_id = proposed_block["leader_id"]
+    records = proposed_block["records"]
+
+    print(
+        f"[Prepare] MEC nodes received proposed Block {block_id} "
+        f"from Leader MEC {leader_id}."
+    )
+
+    for node in mec_nodes:
+
+        is_valid = len(records) > 0
+
+        if is_valid:
+
+            prepare_message = {
+                "node_id": node.node_id,
+                "block_id": block_id,
+                "vote": "PREPARE",
+            }
+
+            prepare_messages.append(prepare_message)
+
+            print(
+                f"[Prepare] MEC {node.node_id} verified Block {block_id} "
+                f"and broadcasted PREPARE message."
+            )
+
+        else:
+
+            print(f"[Prepare] MEC {node.node_id} rejected Block {block_id}.")
+
+    print(f"[Prepare] Total PREPARE messages: {len(prepare_messages)}")
+
+    return prepare_messages
 
 
 # =========================================================

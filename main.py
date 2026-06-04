@@ -1,4 +1,5 @@
 from mec_side import (
+    MECNode,
     ServerVehicle,
     UserVehicle,
     add_block_to_capacity_chain,
@@ -15,6 +16,9 @@ from mec_side import (
     get_confirmed_service_records,
     pending_capacity_records,
     pending_service_records,
+    pre_prepare_phase,
+    prepare_phase,
+    select_leader_by_pos,
     service_chain,
     verify_certificate,
 )
@@ -86,6 +90,27 @@ def main():
     print(f"\n========== TASK {task_counter} ==========")
 
     # =========================================================
+    # BLOCK 44: MEC Nodes Initialization for PoS Consensus
+    # =========================================================
+
+    mec_nodes = [
+        MECNode(
+            node_id=1,
+            redundant_resource=2.0e9,
+        ),
+        MECNode(
+            node_id=2,
+            redundant_resource=3.0e9,
+        ),
+        MECNode(
+            node_id=3,
+            redundant_resource=1.5e9,
+        ),
+    ]
+
+    print("[Main] MEC nodes initialized.")
+
+    # =========================================================
     # BLOCK 23: Capacity Record Creation and Capacity Chain Update
     # =========================================================
 
@@ -98,6 +123,44 @@ def main():
             )
 
             add_to_pending_capacity_records(capacity_record)
+
+    # =========================================================
+    # BLOCK 45: Proof of Service Leader Selection
+    # =========================================================
+
+    leader_node = select_leader_by_pos(
+        mec_nodes=mec_nodes,
+    )
+
+    print("\n[Main] Proof of Service Leader Selection Result:")
+    print(f"Selected Leader MEC ID: {leader_node.node_id}")
+    print(f"Leader Redundant Resource: {leader_node.redundant_resource}")
+
+    # =========================================================
+    # BLOCK 46: PBFT Pre-Prepare Phase
+    # =========================================================
+
+    proposed_capacity_block = pre_prepare_phase(
+        leader_node=leader_node,
+        mec_nodes=mec_nodes,
+        pending_records=pending_capacity_records,
+        next_block_id=len(capacity_chain) + 1,
+    )
+
+    print("\n[Main] Proposed Capacity Block:")
+    print(proposed_capacity_block)
+
+    # =========================================================
+    # BLOCK 47: PBFT Prepare Phase
+    # =========================================================
+
+    prepare_messages = prepare_phase(
+        mec_nodes=mec_nodes,
+        proposed_block=proposed_capacity_block,
+    )
+
+    print("\n[Main] Prepare Messages:")
+    print(prepare_messages)
 
     if consensus_process(pending_capacity_records):
         add_block_to_capacity_chain(pending_capacity_records)
