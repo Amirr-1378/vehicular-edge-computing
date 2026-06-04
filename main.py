@@ -8,6 +8,7 @@ from mec_side import (
     add_to_pending_service_records,
     broadcast_capacity_info,
     capacity_chain,
+    commit_phase,
     consensus_process,
     create_capacity_record,
     create_service_record,
@@ -18,6 +19,7 @@ from mec_side import (
     pending_service_records,
     pre_prepare_phase,
     prepare_phase,
+    reply_phase,
     select_leader_by_pos,
     service_chain,
     verify_certificate,
@@ -161,6 +163,32 @@ def main():
 
     print("\n[Main] Prepare Messages:")
     print(prepare_messages)
+
+    # =========================================================
+    # BLOCK 48: PBFT Commit Phase
+    # =========================================================
+
+    commit_messages = commit_phase(
+        mec_nodes=mec_nodes,
+        proposed_block=proposed_capacity_block,
+        prepare_messages=prepare_messages,
+    )
+
+    print("\n[Main] Commit Messages:")
+    print(commit_messages)
+
+    # =========================================================
+    # BLOCK 49: PBFT Reply Phase
+    # =========================================================
+
+    consensus_result = reply_phase(
+        mec_nodes=mec_nodes,
+        proposed_block=proposed_capacity_block,
+        commit_messages=commit_messages,
+    )
+
+    print("\n[Main] PBFT Consensus Result:")
+    print(consensus_result)
 
     if consensus_process(pending_capacity_records):
         add_block_to_capacity_chain(pending_capacity_records)

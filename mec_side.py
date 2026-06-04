@@ -231,6 +231,93 @@ def prepare_phase(
 
 
 # =========================================================
+# BLOCK 48: PBFT Commit Phase
+# =========================================================
+
+
+def commit_phase(
+    mec_nodes: list[MECNode],
+    proposed_block: dict | None,
+    prepare_messages: list[dict],
+) -> list[dict]:
+
+    commit_messages = []
+
+    if proposed_block is None:
+        print("[Commit] No proposed block received.")
+        return commit_messages
+
+    block_id = proposed_block["block_id"]
+
+    if len(prepare_messages) < len(mec_nodes):
+        print(
+            f"[Commit] Not enough PREPARE messages for Block {block_id}. "
+            f"Required: {len(mec_nodes)}, Received: {len(prepare_messages)}"
+        )
+        return commit_messages
+
+    print(f"[Commit] Enough PREPARE messages received for Block {block_id}.")
+
+    for node in mec_nodes:
+
+        commit_message = {
+            "node_id": node.node_id,
+            "block_id": block_id,
+            "vote": "COMMIT",
+        }
+
+        commit_messages.append(commit_message)
+
+        print(
+            f"[Commit] MEC {node.node_id} broadcasted COMMIT "
+            f"message for Block {block_id}."
+        )
+
+    print(f"[Commit] Total COMMIT messages: {len(commit_messages)}")
+
+    return commit_messages
+
+
+# =========================================================
+# BLOCK 49: PBFT Reply Phase
+# =========================================================
+
+
+def reply_phase(
+    mec_nodes: list[MECNode],
+    proposed_block: dict | None,
+    commit_messages: list[dict],
+) -> bool:
+
+    if proposed_block is None:
+        print("[Reply] No proposed block received.")
+        return False
+
+    block_id = proposed_block["block_id"]
+    leader_id = proposed_block["leader_id"]
+
+    if len(commit_messages) < len(mec_nodes):
+        print(
+            f"[Reply] Not enough COMMIT messages for Block {block_id}. "
+            f"Required: {len(mec_nodes)}, Received: {len(commit_messages)}"
+        )
+        return False
+
+    print(f"[Reply] Enough COMMIT messages received for Block {block_id}.")
+
+    for node in mec_nodes:
+
+        print(
+            f"[Reply] MEC {node.node_id} sent consensus result "
+            f"to Leader MEC {leader_id} for Block {block_id}."
+        )
+
+    print(f"[Reply] Consensus result accepted by Leader MEC {leader_id}.")
+
+    return True
+
+
+# =========================================================
 # BLOCK 3: Consensus Process and Capacity Chain Update
 # =========================================================
 
