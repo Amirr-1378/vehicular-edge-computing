@@ -22,6 +22,7 @@ from mec_side import (
     reply_phase,
     select_leader_by_pos,
     service_chain,
+    store_phase,
     verify_certificate,
 )
 from user_side import (
@@ -190,8 +191,15 @@ def main():
     print("\n[Main] PBFT Consensus Result:")
     print(consensus_result)
 
-    if consensus_process(pending_capacity_records):
-        add_block_to_capacity_chain(pending_capacity_records)
+    store_result = store_phase(
+        proposed_block=proposed_capacity_block,
+        consensus_result=consensus_result,
+        blockchain=capacity_chain,
+        pending_records=pending_capacity_records,
+    )
+
+    print("\n[Main] Store Result:")
+    print(store_result)
 
     print("\n[Main] Capacity Chain:")
     print(capacity_chain)

@@ -318,6 +318,46 @@ def reply_phase(
 
 
 # =========================================================
+# BLOCK 50: PBFT Store Phase
+# =========================================================
+
+
+def store_phase(
+    proposed_block: dict | None,
+    consensus_result: bool,
+    blockchain: list,
+    pending_records: list,
+) -> bool:
+
+    if proposed_block is None:
+        print("[Store] No proposed block to store.")
+        return False
+
+    if not consensus_result:
+        print("[Store] Consensus failed. Block will not be stored.")
+        return False
+
+    block = {
+        "block_id": proposed_block["block_id"],
+        "leader_id": proposed_block["leader_id"],
+        "records": proposed_block["records"],
+    }
+
+    blockchain.append(block)
+
+    pending_records.clear()
+
+    print(
+        f"[Store] Block {block['block_id']} stored successfully "
+        f"by Leader MEC {block['leader_id']}."
+    )
+
+    print("[Store] Pending records cleared after storing block.")
+
+    return True
+
+
+# =========================================================
 # BLOCK 3: Consensus Process and Capacity Chain Update
 # =========================================================
 
