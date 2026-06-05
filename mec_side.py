@@ -178,7 +178,7 @@ def pre_prepare_phase(
 
 
 # =========================================================
-# BLOCK 51: Proposed Block Validation Before Prepare
+# BLOCK 51: Real Proposed Block Validation Before Prepare
 # =========================================================
 
 
@@ -191,15 +191,32 @@ def validate_proposed_block(
         print("[Validation] Proposed block is missing.")
         return False
 
-    if proposed_block["leader_id"] != selected_leader.node_id:
-        print("[Validation] Invalid leader ID in proposed block.")
+    if "block_id" not in proposed_block:
+        print("[Validation] Block ID is missing.")
         return False
 
-    if proposed_block["block_id"] <= 0:
+    if "leader_id" not in proposed_block:
+        print("[Validation] Leader ID is missing.")
+        return False
+
+    if "records" not in proposed_block:
+        print("[Validation] Records are missing.")
+        return False
+
+    block_id = proposed_block["block_id"]
+    leader_id = proposed_block["leader_id"]
+    records = proposed_block["records"]
+
+    if leader_id != selected_leader.node_id:
+        print(
+            f"[Validation] Invalid leader. "
+            f"Expected MEC {selected_leader.node_id}, got MEC {leader_id}."
+        )
+        return False
+
+    if block_id <= 0:
         print("[Validation] Invalid block ID.")
         return False
-
-    records = proposed_block["records"]
 
     if len(records) == 0:
         print("[Validation] Proposed block has no records.")
@@ -207,8 +224,20 @@ def validate_proposed_block(
 
     for record in records:
 
+        if record.record_id <= 0:
+            print(f"[Validation] Invalid record ID in Record {record.record_id}.")
+            return False
+
+        if record.provider <= 0:
+            print(f"[Validation] Invalid provider in Record {record.record_id}.")
+            return False
+
         if record.resource <= 0:
             print(f"[Validation] Invalid resource in Record {record.record_id}.")
+            return False
+
+        if record.trajectory < 0:
+            print(f"[Validation] Invalid trajectory in Record {record.record_id}.")
             return False
 
         if record.price < 0:
@@ -224,11 +253,33 @@ def validate_proposed_block(
             return False
 
     print(
-        f"[Validation] Proposed Block {proposed_block['block_id']} "
-        f"validated successfully."
+        f"[Validation] Proposed Block {block_id} "
+        f"validated successfully with {len(records)} record(s)."
     )
 
     return True
+
+
+# =========================================================
+# BLOCK 52: PBFT Consensus Threshold
+# =========================================================
+
+
+def calculate_pbft_threshold(
+    total_nodes: int,
+) -> int:
+
+    faulty_nodes = (total_nodes - 1) // 3
+
+    threshold = (2 * faulty_nodes) + 1
+
+    print(
+        f"[PBFT Threshold] Total nodes: {total_nodes}, "
+        f"Faulty nodes tolerated: {faulty_nodes}, "
+        f"Required votes: {threshold}"
+    )
+
+    return threshold
 
 
 # =========================================================
@@ -307,14 +358,21 @@ def commit_phase(
 
     block_id = proposed_block["block_id"]
 
-    if len(prepare_messages) < len(mec_nodes):
+    required_votes = calculate_pbft_threshold(
+        total_nodes=len(mec_nodes),
+    )
+
+    if len(prepare_messages) < required_votes:
         print(
             f"[Commit] Not enough PREPARE messages for Block {block_id}. "
-            f"Required: {len(mec_nodes)}, Received: {len(prepare_messages)}"
+            f"Required: {required_votes}, Received: {len(prepare_messages)}"
         )
         return commit_messages
 
-    print(f"[Commit] Enough PREPARE messages received for Block {block_id}.")
+    print(
+        f"[Commit] Enough PREPARE messages received for Block {block_id}. "
+        f"Required: {required_votes}, Received: {len(prepare_messages)}"
+    )
 
     for node in mec_nodes:
 
@@ -354,14 +412,21 @@ def reply_phase(
     block_id = proposed_block["block_id"]
     leader_id = proposed_block["leader_id"]
 
-    if len(commit_messages) < len(mec_nodes):
+    required_votes = calculate_pbft_threshold(
+        total_nodes=len(mec_nodes),
+    )
+
+    if len(commit_messages) < required_votes:
         print(
             f"[Reply] Not enough COMMIT messages for Block {block_id}. "
-            f"Required: {len(mec_nodes)}, Received: {len(commit_messages)}"
+            f"Required: {required_votes}, Received: {len(commit_messages)}"
         )
         return False
 
-    print(f"[Reply] Enough COMMIT messages received for Block {block_id}.")
+    print(
+        f"[Reply] Enough COMMIT messages received for Block {block_id}. "
+        f"Required: {required_votes}, Received: {len(commit_messages)}"
+    )
 
     for node in mec_nodes:
 
