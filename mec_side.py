@@ -82,6 +82,10 @@ class MECNode:
     node_id: int
     redundant_resource: float
     is_leader: bool = False
+    # =========================================================
+    # BLOCK 68: Add Faulty Flag to MECNode
+    # =========================================================
+    is_faulty: bool = False
 
 
 # =========================================================
@@ -548,6 +552,10 @@ def prepare_phase(
 
     for node in mec_nodes:
 
+        if node.is_faulty:
+            print(f"[Prepare] MEC {node.node_id} is faulty and did not send PREPARE.")
+            continue
+
         # is_valid = validate_proposed_block(
         #     proposed_block=proposed_block,
         #     selected_leader=selected_leader,
@@ -629,6 +637,10 @@ def commit_phase(
 
     for node in mec_nodes:
 
+        if node.is_faulty:
+            print(f"[Commit] MEC {node.node_id} is faulty and did not send COMMIT.")
+            continue
+
         commit_message = {
             "node_id": node.node_id,
             "block_id": block_id,
@@ -682,7 +694,9 @@ def reply_phase(
     )
 
     for node in mec_nodes:
-
+        if node.is_faulty:
+            print(f"[Reply] MEC {node.node_id} is faulty and did not send REPLY.")
+            continue
         print(
             f"[Reply] MEC {node.node_id} sent consensus result "
             f"to Leader MEC {leader_id} for Block {block_id}."

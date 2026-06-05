@@ -100,6 +100,12 @@ def main():
         MECNode(
             node_id=3,
             redundant_resource=1.5e9,
+            is_faulty=True,
+        ),
+        MECNode(
+            node_id=4,
+            redundant_resource=1.2e9,
+            is_faulty=False,
         ),
     ]
 
