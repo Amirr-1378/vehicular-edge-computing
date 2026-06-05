@@ -155,6 +155,13 @@ def create_capacity_record(
 
 def add_to_pending_capacity_records(record: CapacityRecord):
 
+    if not validate_capacity_record(record):
+        print(
+            f"[Record {record.record_id}] "
+            f"Rejected and not added to pending capacity records."
+        )
+        return
+
     pending_capacity_records.append(record)
 
     print(f"[Record {record.record_id}] " f"Added to pending capacity records.")
@@ -314,6 +321,32 @@ def validate_proposed_block(
     )
 
     return True
+
+
+# =========================================================
+# BLOCK 65: Single Capacity Record Validation
+# =========================================================
+
+
+def validate_capacity_record(
+    record: CapacityRecord,
+) -> bool:
+
+    proposed_block = {
+        "block_id": 1,
+        "leader_id": 0,
+        "records": [record],
+    }
+
+    dummy_leader = MECNode(
+        node_id=0,
+        redundant_resource=0.0,
+    )
+
+    return validate_proposed_block(
+        proposed_block=proposed_block,
+        selected_leader=dummy_leader,
+    )
 
 
 # =========================================================
