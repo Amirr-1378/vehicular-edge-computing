@@ -1012,6 +1012,26 @@ def create_updated_capacity_record_after_execution(
         quality=latest_record.quality,
     )
 
+    certificate = create_certificate(
+        owner_id=updated_record.provider,
+    )
+
+    private_key = generate_private_key(
+        updated_record.provider,
+    )
+
+    message = build_capacity_record_message(
+        updated_record,
+    )
+
+    signature = sign_message(
+        message=message,
+        private_key=private_key,
+    )
+
+    updated_record.certificate = certificate
+    updated_record.signature = signature
+
     print(
         f"[Capacity Update] New capacity record created for "
         f"Provider {provider_id} with remaining period {updated_period:.6f}."
