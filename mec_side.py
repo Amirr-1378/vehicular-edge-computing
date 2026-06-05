@@ -67,6 +67,11 @@ class ServiceRecord:
     provider: int
     requester: int
     duration: float
+    # =========================================================
+    # BLOCK 60: Add Certificate and Signature to ServiceRecord
+    # =========================================================
+    certificate: Certificate | None = None
+    signature: str = ""
 
 
 # =========================================================
@@ -412,6 +417,26 @@ def build_capacity_record_message(
 
 
 # =========================================================
+# BLOCK 61: Service Record Message Builder
+# =========================================================
+
+
+def build_service_record_message(
+    record: ServiceRecord,
+) -> str:
+
+    message = (
+        f"{record.timestamp}|"
+        f"{record.service_id}|"
+        f"{record.provider}|"
+        f"{record.requester}|"
+        f"{record.duration}"
+    )
+
+    return message
+
+
+# =========================================================
 # BLOCK 47: PBFT Prepare Phase
 # =========================================================
 
@@ -738,6 +763,25 @@ def create_service_record(
         requester=service_request["requester"],
         duration=service_request["estimated_duration"],
     )
+    certificate = create_certificate(
+        owner_id=service_record.provider,
+    )
+
+    private_key = generate_private_key(
+        service_record.provider,
+    )
+
+    message = build_service_record_message(
+        service_record,
+    )
+
+    signature = sign_message(
+        message=message,
+        private_key=private_key,
+    )
+
+    service_record.certificate = certificate
+    service_record.signature = signature
 
     print(
         f"[MEC Side] Service record created: "
