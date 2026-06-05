@@ -32,6 +32,17 @@ class Task:
     deadline: float
 
 
+# =========================================================
+# BLOCK 53: Digital Signature Infrastructure
+# =========================================================
+@dataclass
+class Certificate:
+
+    owner_id: int
+    public_key: str
+    issuer: str
+
+
 @dataclass
 class CapacityRecord:
     timestamp: float
@@ -42,6 +53,11 @@ class CapacityRecord:
     price: float
     period: float
     quality: float
+    # =========================================================
+    # BLOCK 57: Add Certificate and Signature to CapacityRecord
+    # =========================================================
+    certificate: Certificate | None = None
+    signature: str = ""
 
 
 @dataclass
@@ -108,6 +124,26 @@ def create_capacity_record(
         period=server_vehicle.period,
         quality=server_vehicle.quality,
     )
+
+    certificate = create_certificate(
+        owner_id=server_vehicle.vehicle_id,
+    )
+
+    private_key = generate_private_key(
+        server_vehicle.vehicle_id,
+    )
+
+    message = build_capacity_record_message(
+        record,
+    )
+
+    signature = sign_message(
+        message=message,
+        private_key=private_key,
+    )
+
+    record.certificate = certificate
+    record.signature = signature
 
     return record
 
@@ -251,10 +287,25 @@ def validate_proposed_block(
         if not (0 <= record.quality <= 1):
             print(f"[Validation] Invalid quality in Record {record.record_id}.")
             return False
+        if record.certificate is None:
+            print(f"[Validation] Missing certificate in Record {record.record_id}.")
+            return False
+
+        message = build_capacity_record_message(record)
+
+        is_signature_valid = verify_signature(
+            message=message,
+            signature=record.signature,
+            public_key=record.certificate.public_key,
+        )
+
+        if not is_signature_valid:
+            print(f"[Validation] Invalid signature in Record {record.record_id}.")
+            return False
 
     print(
         f"[Validation] Proposed Block {block_id} "
-        f"validated successfully with {len(records)} record(s)."
+        f"validated successfully with {len(records)} signed record(s)."
     )
 
     return True
@@ -280,6 +331,84 @@ def calculate_pbft_threshold(
     )
 
     return threshold
+
+
+# =========================================================
+# BLOCK 54: Mock Key Generation
+# =========================================================
+
+
+def generate_public_key(node_id: int) -> str:
+
+    return f"PUBLIC_KEY_{node_id}"
+
+
+def generate_private_key(node_id: int) -> str:
+
+    return f"PRIVATE_KEY_{node_id}"
+
+
+# =========================================================
+# BLOCK 58: Certificate Generation
+# =========================================================
+
+
+def create_certificate(
+    owner_id: int,
+) -> Certificate:
+
+    return Certificate(
+        owner_id=owner_id,
+        public_key=generate_public_key(owner_id),
+        issuer="Trusted_MEC_CA",
+    )
+
+
+# =========================================================
+# BLOCK 55: Mock Digital Signature
+# =========================================================
+
+
+def sign_message(
+    message: str,
+    private_key: str,
+) -> str:
+
+    return f"SIGN({message})"
+
+
+def verify_signature(
+    message: str,
+    signature: str,
+    public_key: str,
+) -> bool:
+
+    expected_signature = f"SIGN({message})"
+
+    return signature == expected_signature
+
+
+# =========================================================
+# BLOCK 56: Capacity Record Message Builder
+# =========================================================
+
+
+def build_capacity_record_message(
+    record: CapacityRecord,
+) -> str:
+
+    message = (
+        f"{record.timestamp}|"
+        f"{record.record_id}|"
+        f"{record.provider}|"
+        f"{record.resource}|"
+        f"{record.trajectory}|"
+        f"{record.price}|"
+        f"{record.period}|"
+        f"{record.quality}"
+    )
+
+    return message
 
 
 # =========================================================
