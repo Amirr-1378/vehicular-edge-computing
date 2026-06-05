@@ -437,6 +437,57 @@ def build_service_record_message(
 
 
 # =========================================================
+# BLOCK 63: Service Record Validation
+# =========================================================
+
+
+def validate_service_record(
+    record: ServiceRecord,
+) -> bool:
+
+    if record.service_id <= 0:
+        print(f"[Service Validation] Invalid service ID: {record.service_id}.")
+        return False
+
+    if record.provider <= 0:
+        print(f"[Service Validation] Invalid provider in Service {record.service_id}.")
+        return False
+
+    if record.requester <= 0:
+        print(f"[Service Validation] Invalid requester in Service {record.service_id}.")
+        return False
+
+    if record.duration < 0:
+        print(f"[Service Validation] Invalid duration in Service {record.service_id}.")
+        return False
+
+    if record.certificate is None:
+        print(
+            f"[Service Validation] Missing certificate in Service {record.service_id}."
+        )
+        return False
+
+    message = build_service_record_message(record)
+
+    is_signature_valid = verify_signature(
+        message=message,
+        signature=record.signature,
+        public_key=record.certificate.public_key,
+    )
+
+    if not is_signature_valid:
+        print(f"[Service Validation] Invalid signature in Service {record.service_id}.")
+        return False
+
+    print(
+        f"[Service Validation] Service Record {record.service_id} "
+        f"validated successfully."
+    )
+
+    return True
+
+
+# =========================================================
 # BLOCK 47: PBFT Prepare Phase
 # =========================================================
 
@@ -792,7 +843,12 @@ def create_service_record(
 
 
 def add_to_pending_service_records(service_record: ServiceRecord):
-
+    if not validate_service_record(service_record):
+        print(
+            f"[Service Record {service_record.service_id}] "
+            f"Rejected and not added to pending service records."
+        )
+        return
     pending_service_records.append(service_record)
 
     print(
