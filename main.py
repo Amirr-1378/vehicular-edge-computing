@@ -160,6 +160,7 @@ def main():
     prepare_messages = prepare_phase(
         mec_nodes=mec_nodes,
         proposed_block=proposed_capacity_block,
+        selected_leader=leader_node,
     )
 
     print("\n[Main] Prepare Messages:")

@@ -178,6 +178,60 @@ def pre_prepare_phase(
 
 
 # =========================================================
+# BLOCK 51: Proposed Block Validation Before Prepare
+# =========================================================
+
+
+def validate_proposed_block(
+    proposed_block: dict | None,
+    selected_leader: MECNode,
+) -> bool:
+
+    if proposed_block is None:
+        print("[Validation] Proposed block is missing.")
+        return False
+
+    if proposed_block["leader_id"] != selected_leader.node_id:
+        print("[Validation] Invalid leader ID in proposed block.")
+        return False
+
+    if proposed_block["block_id"] <= 0:
+        print("[Validation] Invalid block ID.")
+        return False
+
+    records = proposed_block["records"]
+
+    if len(records) == 0:
+        print("[Validation] Proposed block has no records.")
+        return False
+
+    for record in records:
+
+        if record.resource <= 0:
+            print(f"[Validation] Invalid resource in Record {record.record_id}.")
+            return False
+
+        if record.price < 0:
+            print(f"[Validation] Invalid price in Record {record.record_id}.")
+            return False
+
+        if record.period < 0:
+            print(f"[Validation] Invalid period in Record {record.record_id}.")
+            return False
+
+        if not (0 <= record.quality <= 1):
+            print(f"[Validation] Invalid quality in Record {record.record_id}.")
+            return False
+
+    print(
+        f"[Validation] Proposed Block {proposed_block['block_id']} "
+        f"validated successfully."
+    )
+
+    return True
+
+
+# =========================================================
 # BLOCK 47: PBFT Prepare Phase
 # =========================================================
 
@@ -185,6 +239,7 @@ def pre_prepare_phase(
 def prepare_phase(
     mec_nodes: list[MECNode],
     proposed_block: dict | None,
+    selected_leader: MECNode,
 ) -> list[dict]:
 
     prepare_messages = []
@@ -204,7 +259,10 @@ def prepare_phase(
 
     for node in mec_nodes:
 
-        is_valid = len(records) > 0
+        is_valid = validate_proposed_block(
+            proposed_block=proposed_block,
+            selected_leader=selected_leader,
+        )
 
         if is_valid:
 
