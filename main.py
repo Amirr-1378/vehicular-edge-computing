@@ -2,12 +2,10 @@ from mec_side import (
     MECNode,
     ServerVehicle,
     UserVehicle,
-    add_block_to_capacity_chain,
     add_to_pending_capacity_records,
     add_to_pending_service_records,
     broadcast_capacity_info,
     capacity_chain,
-    consensus_process,
     create_capacity_record,
     create_service_record,
     create_updated_capacity_record_after_execution,
@@ -484,8 +482,16 @@ def main():
 
             add_to_pending_capacity_records(new_capacity_record)
 
-            if consensus_process(pending_capacity_records):
-                add_block_to_capacity_chain(pending_capacity_records)
+            # if consensus_process(pending_capacity_records):
+            #     add_block_to_capacity_chain(pending_capacity_records)
+            capacity_update_pbft_result = pbft_consensus_process(
+                mec_nodes=mec_nodes,
+                pending_records=pending_capacity_records,
+                blockchain=capacity_chain,
+            )
+
+            print("\n[Main] Capacity Update PBFT Result:")
+            print(capacity_update_pbft_result)
 
         print("\n[Main] Capacity Chain After Execution:")
         print(capacity_chain)

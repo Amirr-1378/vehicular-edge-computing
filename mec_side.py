@@ -765,11 +765,35 @@ def pbft_consensus_process(
         selected_leader=leader_node,
     )
 
+    # =========================================================
+    # BLOCK 66: Stop PBFT Flow on Prepare Failure
+    # =========================================================
+
+    required_prepare_votes = calculate_pbft_threshold(
+        total_nodes=len(mec_nodes),
+    )
+
+    if len(prepare_messages) < required_prepare_votes:
+        print("[PBFT] Prepare phase failed. Consensus stopped.")
+        return False
+
     commit_messages = commit_phase(
         mec_nodes=mec_nodes,
         proposed_block=proposed_block,
         prepare_messages=prepare_messages,
     )
+
+    # =========================================================
+    # BLOCK 67: Stop PBFT Flow on Commit Failure
+    # =========================================================
+
+    required_commit_votes = calculate_pbft_threshold(
+        total_nodes=len(mec_nodes),
+    )
+
+    if len(commit_messages) < required_commit_votes:
+        print("[PBFT] Commit phase failed. Consensus stopped.")
+        return False
 
     consensus_result = reply_phase(
         mec_nodes=mec_nodes,
