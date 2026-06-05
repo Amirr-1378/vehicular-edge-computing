@@ -3,26 +3,20 @@ from mec_side import (
     ServerVehicle,
     UserVehicle,
     add_block_to_capacity_chain,
-    add_block_to_service_chain,
     add_to_pending_capacity_records,
     add_to_pending_service_records,
     broadcast_capacity_info,
     capacity_chain,
-    commit_phase,
     consensus_process,
     create_capacity_record,
     create_service_record,
     create_updated_capacity_record_after_execution,
     execute_task_on_server_vehicle,
     get_confirmed_service_records,
+    pbft_consensus_process,
     pending_capacity_records,
     pending_service_records,
-    pre_prepare_phase,
-    prepare_phase,
-    reply_phase,
-    select_leader_by_pos,
     service_chain,
-    store_phase,
     verify_certificate,
 )
 from user_side import (
@@ -127,80 +121,89 @@ def main():
 
             add_to_pending_capacity_records(capacity_record)
 
+    capacity_pbft_result = pbft_consensus_process(
+        mec_nodes=mec_nodes,
+        pending_records=pending_capacity_records,
+        blockchain=capacity_chain,
+    )
+
+    print("\n[Main] Capacity PBFT Result:")
+    print(capacity_pbft_result)
+
     # =========================================================
     # BLOCK 45: Proof of Service Leader Selection
     # =========================================================
 
-    leader_node = select_leader_by_pos(
-        mec_nodes=mec_nodes,
-    )
+    # leader_node = select_leader_by_pos(
+    #     mec_nodes=mec_nodes,
+    # )
 
-    print("\n[Main] Proof of Service Leader Selection Result:")
-    print(f"Selected Leader MEC ID: {leader_node.node_id}")
-    print(f"Leader Redundant Resource: {leader_node.redundant_resource}")
+    # print("\n[Main] Proof of Service Leader Selection Result:")
+    # print(f"Selected Leader MEC ID: {leader_node.node_id}")
+    # print(f"Leader Redundant Resource: {leader_node.redundant_resource}")
 
     # =========================================================
     # BLOCK 46: PBFT Pre-Prepare Phase
     # =========================================================
 
-    proposed_capacity_block = pre_prepare_phase(
-        leader_node=leader_node,
-        mec_nodes=mec_nodes,
-        pending_records=pending_capacity_records,
-        next_block_id=len(capacity_chain) + 1,
-    )
+    # proposed_capacity_block = pre_prepare_phase(
+    #     leader_node=leader_node,
+    #     mec_nodes=mec_nodes,
+    #     pending_records=pending_capacity_records,
+    #     next_block_id=len(capacity_chain) + 1,
+    # )
 
-    print("\n[Main] Proposed Capacity Block:")
-    print(proposed_capacity_block)
+    # print("\n[Main] Proposed Capacity Block:")
+    # print(proposed_capacity_block)
 
     # =========================================================
     # BLOCK 47: PBFT Prepare Phase
     # =========================================================
 
-    prepare_messages = prepare_phase(
-        mec_nodes=mec_nodes,
-        proposed_block=proposed_capacity_block,
-        selected_leader=leader_node,
-    )
+    # prepare_messages = prepare_phase(
+    #     mec_nodes=mec_nodes,
+    #     proposed_block=proposed_capacity_block,
+    #     selected_leader=leader_node,
+    # )
 
-    print("\n[Main] Prepare Messages:")
-    print(prepare_messages)
+    # print("\n[Main] Prepare Messages:")
+    # print(prepare_messages)
 
     # =========================================================
     # BLOCK 48: PBFT Commit Phase
     # =========================================================
 
-    commit_messages = commit_phase(
-        mec_nodes=mec_nodes,
-        proposed_block=proposed_capacity_block,
-        prepare_messages=prepare_messages,
-    )
+    # commit_messages = commit_phase(
+    #     mec_nodes=mec_nodes,
+    #     proposed_block=proposed_capacity_block,
+    #     prepare_messages=prepare_messages,
+    # )
 
-    print("\n[Main] Commit Messages:")
-    print(commit_messages)
+    # print("\n[Main] Commit Messages:")
+    # print(commit_messages)
 
     # =========================================================
     # BLOCK 49: PBFT Reply Phase
     # =========================================================
 
-    consensus_result = reply_phase(
-        mec_nodes=mec_nodes,
-        proposed_block=proposed_capacity_block,
-        commit_messages=commit_messages,
-    )
+    # consensus_result = reply_phase(
+    #     mec_nodes=mec_nodes,
+    #     proposed_block=proposed_capacity_block,
+    #     commit_messages=commit_messages,
+    # )
 
-    print("\n[Main] PBFT Consensus Result:")
-    print(consensus_result)
+    # print("\n[Main] PBFT Consensus Result:")
+    # print(consensus_result)
 
-    store_result = store_phase(
-        proposed_block=proposed_capacity_block,
-        consensus_result=consensus_result,
-        blockchain=capacity_chain,
-        pending_records=pending_capacity_records,
-    )
+    # store_result = store_phase(
+    #     proposed_block=proposed_capacity_block,
+    #     consensus_result=consensus_result,
+    #     blockchain=capacity_chain,
+    #     pending_records=pending_capacity_records,
+    # )
 
-    print("\n[Main] Store Result:")
-    print(store_result)
+    # print("\n[Main] Store Result:")
+    # print(store_result)
 
     print("\n[Main] Capacity Chain:")
     print(capacity_chain)
@@ -435,8 +438,16 @@ def main():
 
         add_to_pending_service_records(service_record)
 
-        if consensus_process(pending_service_records):
-            add_block_to_service_chain(pending_service_records)
+        # if consensus_process(pending_service_records):
+        #     add_block_to_service_chain(pending_service_records)
+        service_pbft_result = pbft_consensus_process(
+            mec_nodes=mec_nodes,
+            pending_records=pending_service_records,
+            blockchain=service_chain,
+        )
+
+        print("\n[Main] Service PBFT Result:")
+        print(service_pbft_result)
 
         print("\n[Main] Service Chain:")
         print(service_chain)

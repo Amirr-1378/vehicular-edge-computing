@@ -515,10 +515,25 @@ def prepare_phase(
 
     for node in mec_nodes:
 
-        is_valid = validate_proposed_block(
-            proposed_block=proposed_block,
-            selected_leader=selected_leader,
-        )
+        # is_valid = validate_proposed_block(
+        #     proposed_block=proposed_block,
+        #     selected_leader=selected_leader,
+        # )
+
+        first_record = records[0]
+
+        if isinstance(first_record, CapacityRecord):
+            is_valid = validate_proposed_block(
+                proposed_block=proposed_block,
+                selected_leader=selected_leader,
+            )
+
+        elif isinstance(first_record, ServiceRecord):
+            is_valid = all(validate_service_record(record) for record in records)
+
+        else:
+            print("[Prepare] Unknown record type.")
+            is_valid = False
 
         if is_valid:
 
@@ -683,6 +698,63 @@ def store_phase(
     print("[Store] Pending records cleared after storing block.")
 
     return True
+
+
+# =========================================================
+# BLOCK 64: PBFT Consensus Wrapper
+# =========================================================
+
+
+def pbft_consensus_process(
+    mec_nodes: list[MECNode],
+    pending_records: list,
+    blockchain: list,
+) -> bool:
+
+    if len(pending_records) == 0:
+        print("[PBFT] No pending records to process.")
+        return False
+
+    leader_node = select_leader_by_pos(
+        mec_nodes=mec_nodes,
+    )
+
+    proposed_block = pre_prepare_phase(
+        leader_node=leader_node,
+        mec_nodes=mec_nodes,
+        pending_records=pending_records,
+        next_block_id=len(blockchain) + 1,
+    )
+
+    prepare_messages = prepare_phase(
+        mec_nodes=mec_nodes,
+        proposed_block=proposed_block,
+        selected_leader=leader_node,
+    )
+
+    commit_messages = commit_phase(
+        mec_nodes=mec_nodes,
+        proposed_block=proposed_block,
+        prepare_messages=prepare_messages,
+    )
+
+    consensus_result = reply_phase(
+        mec_nodes=mec_nodes,
+        proposed_block=proposed_block,
+        commit_messages=commit_messages,
+    )
+
+    store_result = store_phase(
+        proposed_block=proposed_block,
+        consensus_result=consensus_result,
+        blockchain=blockchain,
+        pending_records=pending_records,
+    )
+
+    print("\n[PBFT] Final PBFT Consensus Result:")
+    print(store_result)
+
+    return store_result
 
 
 # =========================================================
