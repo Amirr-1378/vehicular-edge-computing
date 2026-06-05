@@ -105,7 +105,7 @@ def main():
         MECNode(
             node_id=4,
             redundant_resource=1.2e9,
-            is_faulty=True,
+            is_faulty=False,
         ),
     ]
 
@@ -140,19 +140,23 @@ def main():
         blockchain=capacity_chain,
     )
 
-    if not capacity_pbft_result:
-        print("[Main] First Capacity PBFT attempt failed. Retrying consensus...")
+    # =========================================================
+    # BELOW IS THE CODE FOR RETRYING PBFT CONSENSUS IF THE FIRST ATTEMPT FAILS DUE TO A FAULTY NODE
+    # =========================================================
 
-        for mec_node in mec_nodes:
-            if mec_node.node_id == 4:
-                mec_node.is_faulty = False
-                print("[Main] MEC 4 recovered before retry.")
+    # if not capacity_pbft_result:
+    #     print("[Main] First Capacity PBFT attempt failed. Retrying consensus...")
 
-        capacity_pbft_result = pbft_consensus_process(
-            mec_nodes=mec_nodes,
-            pending_records=pending_capacity_records,
-            blockchain=capacity_chain,
-        )
+    #     for mec_node in mec_nodes:
+    #         if mec_node.node_id == 4:
+    #             mec_node.is_faulty = False
+    #             print("[Main] MEC 4 recovered before retry.")
+
+    #     capacity_pbft_result = pbft_consensus_process(
+    #         mec_nodes=mec_nodes,
+    #         pending_records=pending_capacity_records,
+    #         blockchain=capacity_chain,
+    #     )
 
     print("\n[Main] Capacity PBFT Result:")
     print(capacity_pbft_result)
