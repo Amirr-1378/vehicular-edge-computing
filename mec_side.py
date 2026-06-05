@@ -748,6 +748,41 @@ def store_phase(
 
 
 # =========================================================
+# BLOCK 73: PBFT Consensus Failure Handler
+# =========================================================
+
+
+def handle_pbft_failure(
+    phase_name: str,
+    proposed_block: dict | None,
+    pending_records: list,
+) -> bool:
+
+    if proposed_block is not None:
+        block_id = proposed_block["block_id"]
+
+        print(
+            f"[PBFT Failure] Consensus failed during {phase_name} "
+            f"for Block {block_id}."
+        )
+
+    else:
+        print(
+            f"[PBFT Failure] Consensus failed during {phase_name}. "
+            f"No proposed block was created."
+        )
+
+    print("[PBFT Failure] Block rejected and not stored.")
+
+    print(
+        f"[PBFT Failure] Pending records kept for retry: "
+        f"{len(pending_records)} record(s)."
+    )
+
+    return False
+
+
+# =========================================================
 # BLOCK 64: PBFT Consensus Wrapper
 # =========================================================
 
@@ -787,9 +822,16 @@ def pbft_consensus_process(
         total_nodes=len(mec_nodes),
     )
 
+    # if len(prepare_messages) < required_prepare_votes:
+    #     print("[PBFT] Prepare phase failed. Consensus stopped.")
+    #     return False
+
     if len(prepare_messages) < required_prepare_votes:
-        print("[PBFT] Prepare phase failed. Consensus stopped.")
-        return False
+        return handle_pbft_failure(
+            phase_name="Prepare",
+            proposed_block=proposed_block,
+            pending_records=pending_records,
+        )
 
     commit_messages = commit_phase(
         mec_nodes=mec_nodes,
@@ -805,9 +847,16 @@ def pbft_consensus_process(
         total_nodes=len(mec_nodes),
     )
 
+    # if len(commit_messages) < required_commit_votes:
+    #     print("[PBFT] Commit phase failed. Consensus stopped.")
+    #     return False
+
     if len(commit_messages) < required_commit_votes:
-        print("[PBFT] Commit phase failed. Consensus stopped.")
-        return False
+        return handle_pbft_failure(
+            phase_name="Commit",
+            proposed_block=proposed_block,
+            pending_records=pending_records,
+        )
 
     consensus_result = reply_phase(
         mec_nodes=mec_nodes,

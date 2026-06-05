@@ -238,6 +238,19 @@ def main():
     print("\n[Main] Selected Candidate:")
     print(selected_candidate)
 
+    if selected_candidate is None:
+        print("[Main] No valid server vehicle candidate. Task will be executed on MEC.")
+
+        mec_execution_result = execute_task_on_mec(
+            user_vehicle=user_vehicle,
+            mec_latency=0.0,
+        )
+
+        print("\n[Main] MEC Execution Result:")
+        print(mec_execution_result)
+
+        return
+
     # =========================================================
     # BLOCK 26: Data Rate and Latency Calculation
     # =========================================================
