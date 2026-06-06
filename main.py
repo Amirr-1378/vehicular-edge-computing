@@ -49,6 +49,13 @@ FAULTY_MEC_IDS = {3}
 
 def main():
 
+    TEST_MODE = True
+    DEBUG = TEST_MODE
+
+    def debug_print(message):
+        if DEBUG:
+            print(message)
+
     print("Simulation started.")
 
     task_counter = 1
@@ -222,8 +229,8 @@ def main():
     # print("\n[Main] Store Result:")
     # print(store_result)
 
-    print("\n[Main] Capacity Chain:")
-    print(capacity_chain)
+    debug_print("\n[Main] Capacity Chain:")
+    debug_print(capacity_chain)
 
     # =========================================================
     # BLOCK 24: Broadcast Capacity Information to User Vehicle
@@ -233,8 +240,8 @@ def main():
 
     received_capacity_info = receive_capacity_info(broadcasted_capacity_info)
 
-    print("\n[Main] Received Capacity Information:")
-    print(received_capacity_info)
+    debug_print("\n[Main] Received Capacity Information:")
+    debug_print(received_capacity_info)
 
     bandwidth = 10e6
     transmit_power = 0.5
@@ -263,8 +270,8 @@ def main():
         service_records=confirmed_service_records,
     )
 
-    print("\n[Main] Selected Candidate:")
-    print(selected_candidate)
+    debug_print("\n[Main] Selected Candidate:")
+    debug_print(selected_candidate)
 
     if selected_candidate is None:
         print("[Main] No valid server vehicle candidate. Task will be executed on MEC.")
@@ -525,8 +532,8 @@ def main():
             )
             return
 
-        print("\n[Main] Service Chain:")
-        print(service_chain)
+        debug_print("\n[Main] Service Chain:")
+        debug_print(service_chain)
 
         # =========================================================
         # BLOCK 32: Server Vehicle Execution and Capacity Update
