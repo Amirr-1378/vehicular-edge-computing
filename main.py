@@ -503,6 +503,12 @@ def main():
 
         # if consensus_process(pending_service_records):
         #     add_block_to_service_chain(pending_service_records)
+
+        # for mec_node in mec_nodes:
+        #     if mec_node.node_id == 4:
+        #         mec_node.is_faulty = True
+        #         print("[Main] MEC 4 temporarily marked faulty before Service PBFT.")
+
         service_pbft_result = pbft_consensus_process(
             mec_nodes=mec_nodes,
             pending_records=pending_service_records,
@@ -511,6 +517,13 @@ def main():
 
         print("\n[Main] Service PBFT Result:")
         print(service_pbft_result)
+
+        if not service_pbft_result:
+            print("[Main] Service PBFT failed. Service record was not stored.")
+            print(
+                "[Main] Task execution is cancelled because service consensus failed."
+            )
+            return
 
         print("\n[Main] Service Chain:")
         print(service_chain)
