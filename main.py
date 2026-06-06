@@ -40,6 +40,8 @@ NUM_TASKS = 100
 
 simulation_results = []
 
+FAULTY_MEC_IDS = {3}
+
 # =========================================================
 # BLOCK 21: Main Flow Initialization
 # =========================================================
@@ -92,20 +94,22 @@ def main():
         MECNode(
             node_id=1,
             redundant_resource=2.0e9,
+            is_faulty=1 in FAULTY_MEC_IDS,
         ),
         MECNode(
             node_id=2,
             redundant_resource=3.0e9,
+            is_faulty=2 in FAULTY_MEC_IDS,
         ),
         MECNode(
             node_id=3,
             redundant_resource=1.5e9,
-            is_faulty=True,
+            is_faulty=3 in FAULTY_MEC_IDS,
         ),
         MECNode(
             node_id=4,
             redundant_resource=1.2e9,
-            is_faulty=False,
+            is_faulty=4 in FAULTY_MEC_IDS,
         ),
     ]
 
@@ -139,24 +143,6 @@ def main():
         pending_records=pending_capacity_records,
         blockchain=capacity_chain,
     )
-
-    # =========================================================
-    # BELOW IS THE CODE FOR RETRYING PBFT CONSENSUS IF THE FIRST ATTEMPT FAILS DUE TO A FAULTY NODE
-    # =========================================================
-
-    # if not capacity_pbft_result:
-    #     print("[Main] First Capacity PBFT attempt failed. Retrying consensus...")
-
-    #     for mec_node in mec_nodes:
-    #         if mec_node.node_id == 4:
-    #             mec_node.is_faulty = False
-    #             print("[Main] MEC 4 recovered before retry.")
-
-    #     capacity_pbft_result = pbft_consensus_process(
-    #         mec_nodes=mec_nodes,
-    #         pending_records=pending_capacity_records,
-    #         blockchain=capacity_chain,
-    #     )
 
     print("\n[Main] Capacity PBFT Result:")
     print(capacity_pbft_result)
@@ -250,6 +236,21 @@ def main():
     print("\n[Main] Received Capacity Information:")
     print(received_capacity_info)
 
+    bandwidth = 10e6
+    transmit_power = 0.5
+    path_loss_exponent = 3.0
+    channel_gain = 1.0
+    noise_power = 1e-9
+
+    input_size = 1e6
+    complexity = 240
+    mec_cpu_frequency = 10e9
+
+    beta_uplink = 1.0
+    beta_downlink = 0.2
+    beta_request = 1.0
+    beta_result = 0.2
+
     # =========================================================
     # BLOCK 25: Select Available Candidate Server Vehicle
     # =========================================================
@@ -268,9 +269,42 @@ def main():
     if selected_candidate is None:
         print("[Main] No valid server vehicle candidate. Task will be executed on MEC.")
 
+        # fallback_uplink_rate = 10e6
+        # fallback_downlink_rate = 10e6
+
+        distance_to_mec = 50.0
+
+        fallback_uplink_rate = calculate_data_rate(
+            bandwidth=bandwidth,
+            transmit_power=transmit_power,
+            distance=distance_to_mec,
+            path_loss_exponent=path_loss_exponent,
+            channel_gain=channel_gain,
+            noise_power=noise_power,
+        )
+
+        fallback_downlink_rate = calculate_data_rate(
+            bandwidth=bandwidth,
+            transmit_power=transmit_power,
+            distance=distance_to_mec,
+            path_loss_exponent=path_loss_exponent,
+            channel_gain=channel_gain,
+            noise_power=noise_power,
+        )
+
+        fallback_mec_latency = calculate_mec_latency(
+            input_size=input_size,
+            complexity=complexity,
+            mec_cpu_frequency=mec_cpu_frequency,
+            uplink_rate=fallback_uplink_rate,
+            downlink_rate=fallback_downlink_rate,
+            beta_uplink=beta_uplink,
+            beta_downlink=beta_downlink,
+        )
+
         mec_execution_result = execute_task_on_mec(
             user_vehicle=user_vehicle,
-            mec_latency=0.0,
+            mec_latency=fallback_mec_latency,
         )
 
         print("\n[Main] MEC Execution Result:")
@@ -281,21 +315,6 @@ def main():
     # =========================================================
     # BLOCK 26: Data Rate and Latency Calculation
     # =========================================================
-
-    bandwidth = 10e6
-    transmit_power = 0.5
-    path_loss_exponent = 3.0
-    channel_gain = 1.0
-    noise_power = 1e-9
-
-    input_size = 1e6
-    complexity = 240
-    mec_cpu_frequency = 10e9
-
-    beta_uplink = 1.0
-    beta_downlink = 0.2
-    beta_request = 1.0
-    beta_result = 0.2
 
     distance_to_mec = 50.0
     distance_to_server_vehicle = abs(
