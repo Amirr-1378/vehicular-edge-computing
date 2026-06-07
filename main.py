@@ -50,95 +50,23 @@ FAULTY_MEC_IDS = {3}
 
 def run_single_task(
     task_counter: int,
+    server_vehicles,
+    user_vehicle,
+    mec_nodes,
+    debug_print,
+    enable_service_retry_test,
 ):
+
     print(f"\n========== TASK {task_counter} ==========")
 
     print("[Main] MEC nodes initialized.")
     print("[Main] Server vehicles initialized.")
     print("[Main] User vehicle initialized.")
 
-
-# =========================================================
-# BLOCK 21: Main Flow Initialization
-# =========================================================
-
-
-def main():
-
-    ENABLE_SERVICE_RETRY_TEST = False
-
-    TEST_MODE = True
-    DEBUG = TEST_MODE
-
-    def debug_print(message):
-        if DEBUG:
-            print(message)
-
-    print("Simulation started.")
-
-    # =========================================================
-    # BLOCK 22: Simulation Entities and Initial Parameters
-    # =========================================================
-
-    server_vehicles = [
-        ServerVehicle(
-            vehicle_id=1,
-            resource=2e9,
-            trajectory=120.0,
-            price_init=0.6,
-            period=60.0,
-            quality=0.9,
-        ),
-        ServerVehicle(
-            vehicle_id=2,
-            resource=1.5e9,
-            trajectory=130.0,
-            price_init=0.7,
-            period=50.0,
-            quality=0.85,
-        ),
-    ]
-
-    user_vehicle = UserVehicle(
-        vehicle_id=101,
-        trajectory=118.0,
-    )
-
-    task_counter = 1
-
-    # print(f"\n========== TASK {task_counter} ==========")
-
-    run_single_task(
-        task_counter=task_counter,
-    )
-
-    # =========================================================
-    # BLOCK 44: MEC Nodes Initialization for PoS Consensus
-    # =========================================================
-
-    mec_nodes = [
-        MECNode(
-            node_id=1,
-            redundant_resource=2.0e9,
-            is_faulty=1 in FAULTY_MEC_IDS,
-        ),
-        MECNode(
-            node_id=2,
-            redundant_resource=3.0e9,
-            is_faulty=2 in FAULTY_MEC_IDS,
-        ),
-        MECNode(
-            node_id=3,
-            redundant_resource=1.5e9,
-            is_faulty=3 in FAULTY_MEC_IDS,
-        ),
-        MECNode(
-            node_id=4,
-            redundant_resource=1.2e9,
-            is_faulty=4 in FAULTY_MEC_IDS,
-        ),
-    ]
-
+    pending_capacity_records.clear()
+    pending_service_records.clear()
+    capacity_chain.clear()
+    service_chain.clear()
     # =========================================================
     # BLOCK 23: Capacity Record Creation and Capacity Chain Update
     # =========================================================
@@ -170,85 +98,6 @@ def main():
 
     print("\n[Main] Capacity PBFT Result:")
     print(capacity_pbft_result)
-
-    # =========================================================
-    # BLOCK 45: Proof of Service Leader Selection
-    # =========================================================
-
-    # leader_node = select_leader_by_pos(
-    #     mec_nodes=mec_nodes,
-    # )
-
-    # print("\n[Main] Proof of Service Leader Selection Result:")
-    # print(f"Selected Leader MEC ID: {leader_node.node_id}")
-    # print(f"Leader Redundant Resource: {leader_node.redundant_resource}")
-
-    # =========================================================
-    # BLOCK 46: PBFT Pre-Prepare Phase
-    # =========================================================
-
-    # proposed_capacity_block = pre_prepare_phase(
-    #     leader_node=leader_node,
-    #     mec_nodes=mec_nodes,
-    #     pending_records=pending_capacity_records,
-    #     next_block_id=len(capacity_chain) + 1,
-    # )
-
-    # print("\n[Main] Proposed Capacity Block:")
-    # print(proposed_capacity_block)
-
-    # =========================================================
-    # BLOCK 47: PBFT Prepare Phase
-    # =========================================================
-
-    # prepare_messages = prepare_phase(
-    #     mec_nodes=mec_nodes,
-    #     proposed_block=proposed_capacity_block,
-    #     selected_leader=leader_node,
-    # )
-
-    # print("\n[Main] Prepare Messages:")
-    # print(prepare_messages)
-
-    # =========================================================
-    # BLOCK 48: PBFT Commit Phase
-    # =========================================================
-
-    # commit_messages = commit_phase(
-    #     mec_nodes=mec_nodes,
-    #     proposed_block=proposed_capacity_block,
-    #     prepare_messages=prepare_messages,
-    # )
-
-    # print("\n[Main] Commit Messages:")
-    # print(commit_messages)
-
-    # =========================================================
-    # BLOCK 49: PBFT Reply Phase
-    # =========================================================
-
-    # consensus_result = reply_phase(
-    #     mec_nodes=mec_nodes,
-    #     proposed_block=proposed_capacity_block,
-    #     commit_messages=commit_messages,
-    # )
-
-    # print("\n[Main] PBFT Consensus Result:")
-    # print(consensus_result)
-
-    # store_result = store_phase(
-    #     proposed_block=proposed_capacity_block,
-    #     consensus_result=consensus_result,
-    #     blockchain=capacity_chain,
-    #     pending_records=pending_capacity_records,
-    # )
-
-    # print("\n[Main] Store Result:")
-    # print(store_result)
-
-    debug_print("\n[Main] Capacity Chain:")
-    debug_print(capacity_chain)
-
     # =========================================================
     # BLOCK 24: Broadcast Capacity Information to User Vehicle
     # =========================================================
@@ -335,7 +184,6 @@ def main():
         print(mec_execution_result)
 
         return
-
     # =========================================================
     # BLOCK 26: Data Rate and Latency Calculation
     # =========================================================
@@ -504,6 +352,23 @@ def main():
         print("\n[Main] MEC Execution Result:")
         print(mec_execution_result)
 
+        task_result = {
+            "task_id": task_counter,
+            "selected_provider": None,
+            "mec_latency": mec_latency,
+            "v2v_latency": v2v_latency,
+            "utility": utility,
+            "cost": cost,
+            "payoff": payoff,
+            "converged_probability": converged_probability,
+            "offloading_decision": offloading_decision,
+        }
+
+        print("\n[Main] Task Result:")
+        print(task_result)
+
+        return task_result
+
     else:
 
         service_request = send_service_request_to_mec(
@@ -539,7 +404,7 @@ def main():
             blockchain=service_chain,
         )
 
-        if ENABLE_SERVICE_RETRY_TEST and not service_pbft_result:
+        if enable_service_retry_test and not service_pbft_result:
             print(
                 "[Main] First Service PBFT attempt failed. Retrying service consensus..."
             )
@@ -630,33 +495,220 @@ def main():
             "offloading_decision": offloading_decision,
         }
 
-        simulation_results.append(task_result)
+        # simulation_results.append(task_result)
 
         print("\n[Main] Task Result:")
         print(task_result)
 
-        # =========================================================
-        # BLOCK 41: Simulation Summary
-        # =========================================================
+        return task_result
 
-        print("\n==============================")
-        print("SIMULATION SUMMARY")
-        print("==============================")
+        # # =========================================================
+        # # BLOCK 41: Simulation Summary
+        # # =========================================================
 
-        print(f"Number of completed tasks: {len(simulation_results)}")
+        # print("\n==============================")
+        # print("SIMULATION SUMMARY")
+        # print("==============================")
 
-        if len(simulation_results) > 0:
+        # print(f"Number of completed tasks: {len(simulation_results)}")
 
-            average_latency = sum(
-                result["mec_latency"] for result in simulation_results
-            ) / len(simulation_results)
+        # if len(simulation_results) > 0:
 
-            average_payoff = sum(
-                result["payoff"] for result in simulation_results
-            ) / len(simulation_results)
+        #     average_latency = sum(
+        #         result["mec_latency"] for result in simulation_results
+        #     ) / len(simulation_results)
 
-            print(f"Average MEC Latency: {average_latency:.6f}")
-            print(f"Average Payoff: {average_payoff:.6f}")
+        #     average_payoff = sum(
+        #         result["payoff"] for result in simulation_results
+        #     ) / len(simulation_results)
+
+        #     print(f"Average MEC Latency: {average_latency:.6f}")
+        #     print(f"Average Payoff: {average_payoff:.6f}")
+
+
+# =========================================================
+# BLOCK 21: Main Flow Initialization
+# =========================================================
+
+
+def main():
+
+    ENABLE_SERVICE_RETRY_TEST = False
+
+    TEST_MODE = True
+    DEBUG = TEST_MODE
+
+    def debug_print(message):
+        if DEBUG:
+            print(message)
+
+    print("Simulation started.")
+
+    # =========================================================
+    # BLOCK 22: Simulation Entities and Initial Parameters
+    # =========================================================
+
+    server_vehicles = [
+        ServerVehicle(
+            vehicle_id=1,
+            resource=2e9,
+            trajectory=120.0,
+            price_init=0.6,
+            period=60.0,
+            quality=0.9,
+        ),
+        ServerVehicle(
+            vehicle_id=2,
+            resource=1.5e9,
+            trajectory=130.0,
+            price_init=0.7,
+            period=50.0,
+            quality=0.85,
+        ),
+    ]
+
+    user_vehicle = UserVehicle(
+        vehicle_id=101,
+        trajectory=118.0,
+    )
+
+    # print(f"\n========== TASK {task_counter} ==========")
+
+    # =========================================================
+    # BLOCK 44: MEC Nodes Initialization for PoS Consensus
+    # =========================================================
+
+    mec_nodes = [
+        MECNode(
+            node_id=1,
+            redundant_resource=2.0e9,
+            is_faulty=1 in FAULTY_MEC_IDS,
+        ),
+        MECNode(
+            node_id=2,
+            redundant_resource=3.0e9,
+            is_faulty=2 in FAULTY_MEC_IDS,
+        ),
+        MECNode(
+            node_id=3,
+            redundant_resource=1.5e9,
+            is_faulty=3 in FAULTY_MEC_IDS,
+        ),
+        MECNode(
+            node_id=4,
+            redundant_resource=1.2e9,
+            is_faulty=4 in FAULTY_MEC_IDS,
+        ),
+    ]
+
+    for task_counter in range(1, NUM_TASKS + 1):
+        task_result = run_single_task(
+            task_counter=task_counter,
+            server_vehicles=server_vehicles,
+            user_vehicle=user_vehicle,
+            mec_nodes=mec_nodes,
+            debug_print=debug_print,
+            enable_service_retry_test=ENABLE_SERVICE_RETRY_TEST,
+        )
+
+        if task_result is not None:
+            simulation_results.append(task_result)
+
+    print("\n==============================")
+    print("SIMULATION SUMMARY")
+    print("==============================")
+
+    print(f"Number of completed tasks: {len(simulation_results)}")
+
+    if len(simulation_results) > 0:
+        average_latency = sum(
+            result["mec_latency"] for result in simulation_results
+        ) / len(simulation_results)
+
+        average_payoff = sum(result["payoff"] for result in simulation_results) / len(
+            simulation_results
+        )
+
+        print(f"Average MEC Latency: {average_latency:.6f}")
+        print(f"Average Payoff: {average_payoff:.6f}")
+
+    # =========================================================
+    # BLOCK 45: Proof of Service Leader Selection
+    # =========================================================
+
+    # leader_node = select_leader_by_pos(
+    #     mec_nodes=mec_nodes,
+    # )
+
+    # print("\n[Main] Proof of Service Leader Selection Result:")
+    # print(f"Selected Leader MEC ID: {leader_node.node_id}")
+    # print(f"Leader Redundant Resource: {leader_node.redundant_resource}")
+
+    # =========================================================
+    # BLOCK 46: PBFT Pre-Prepare Phase
+    # =========================================================
+
+    # proposed_capacity_block = pre_prepare_phase(
+    #     leader_node=leader_node,
+    #     mec_nodes=mec_nodes,
+    #     pending_records=pending_capacity_records,
+    #     next_block_id=len(capacity_chain) + 1,
+    # )
+
+    # print("\n[Main] Proposed Capacity Block:")
+    # print(proposed_capacity_block)
+
+    # =========================================================
+    # BLOCK 47: PBFT Prepare Phase
+    # =========================================================
+
+    # prepare_messages = prepare_phase(
+    #     mec_nodes=mec_nodes,
+    #     proposed_block=proposed_capacity_block,
+    #     selected_leader=leader_node,
+    # )
+
+    # print("\n[Main] Prepare Messages:")
+    # print(prepare_messages)
+
+    # =========================================================
+    # BLOCK 48: PBFT Commit Phase
+    # =========================================================
+
+    # commit_messages = commit_phase(
+    #     mec_nodes=mec_nodes,
+    #     proposed_block=proposed_capacity_block,
+    #     prepare_messages=prepare_messages,
+    # )
+
+    # print("\n[Main] Commit Messages:")
+    # print(commit_messages)
+
+    # =========================================================
+    # BLOCK 49: PBFT Reply Phase
+    # =========================================================
+
+    # consensus_result = reply_phase(
+    #     mec_nodes=mec_nodes,
+    #     proposed_block=proposed_capacity_block,
+    #     commit_messages=commit_messages,
+    # )
+
+    # print("\n[Main] PBFT Consensus Result:")
+    # print(consensus_result)
+
+    # store_result = store_phase(
+    #     proposed_block=proposed_capacity_block,
+    #     consensus_result=consensus_result,
+    #     blockchain=capacity_chain,
+    #     pending_records=pending_capacity_records,
+    # )
+
+    # print("\n[Main] Store Result:")
+    # print(store_result)
+
+    # debug_print("\n[Main] Capacity Chain:")
+    # debug_print(capacity_chain)
 
 
 if __name__ == "__main__":
