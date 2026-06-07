@@ -65,7 +65,7 @@ def run_single_task(
 
 def main():
 
-    ENABLE_SERVICE_RETRY_TEST = True
+    ENABLE_SERVICE_RETRY_TEST = False
 
     TEST_MODE = True
     DEBUG = TEST_MODE
@@ -528,10 +528,10 @@ def main():
         # if consensus_process(pending_service_records):
         #     add_block_to_service_chain(pending_service_records)
 
-        for mec_node in mec_nodes:
-            if mec_node.node_id == 4:
-                mec_node.is_faulty = True
-                print("[Main] MEC 4 temporarily marked faulty before Service PBFT.")
+        # for mec_node in mec_nodes:
+        #     if mec_node.node_id == 4:
+        #         mec_node.is_faulty = True
+        #         print("[Main] MEC 4 temporarily marked faulty before Service PBFT.")
 
         service_pbft_result = pbft_consensus_process(
             mec_nodes=mec_nodes,
