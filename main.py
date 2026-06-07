@@ -36,11 +36,27 @@ from user_side import (
 # BLOCK 38: Simulation Parameters
 # =========================================================
 
-NUM_TASKS = 100
+NUM_TASKS = 3
 
 simulation_results = []
 
 FAULTY_MEC_IDS = {3}
+
+
+# =========================================================
+# BLOCK 76: Single Task Simulation Function
+# =========================================================
+
+
+def run_single_task(
+    task_counter: int,
+):
+    print(f"\n========== TASK {task_counter} ==========")
+
+    print("[Main] MEC nodes initialized.")
+    print("[Main] Server vehicles initialized.")
+    print("[Main] User vehicle initialized.")
+
 
 # =========================================================
 # BLOCK 21: Main Flow Initialization
@@ -48,6 +64,8 @@ FAULTY_MEC_IDS = {3}
 
 
 def main():
+
+    ENABLE_SERVICE_RETRY_TEST = True
 
     TEST_MODE = True
     DEBUG = TEST_MODE
@@ -57,8 +75,6 @@ def main():
             print(message)
 
     print("Simulation started.")
-
-    task_counter = 1
 
     # =========================================================
     # BLOCK 22: Simulation Entities and Initial Parameters
@@ -88,10 +104,13 @@ def main():
         trajectory=118.0,
     )
 
-    print("[Main] Server vehicles initialized.")
-    print("[Main] User vehicle initialized.")
+    task_counter = 1
 
-    print(f"\n========== TASK {task_counter} ==========")
+    # print(f"\n========== TASK {task_counter} ==========")
+
+    run_single_task(
+        task_counter=task_counter,
+    )
 
     # =========================================================
     # BLOCK 44: MEC Nodes Initialization for PoS Consensus
@@ -119,8 +138,6 @@ def main():
             is_faulty=4 in FAULTY_MEC_IDS,
         ),
     ]
-
-    print("[Main] MEC nodes initialized.")
 
     # =========================================================
     # BLOCK 23: Capacity Record Creation and Capacity Chain Update
@@ -511,16 +528,32 @@ def main():
         # if consensus_process(pending_service_records):
         #     add_block_to_service_chain(pending_service_records)
 
-        # for mec_node in mec_nodes:
-        #     if mec_node.node_id == 4:
-        #         mec_node.is_faulty = True
-        #         print("[Main] MEC 4 temporarily marked faulty before Service PBFT.")
+        for mec_node in mec_nodes:
+            if mec_node.node_id == 4:
+                mec_node.is_faulty = True
+                print("[Main] MEC 4 temporarily marked faulty before Service PBFT.")
 
         service_pbft_result = pbft_consensus_process(
             mec_nodes=mec_nodes,
             pending_records=pending_service_records,
             blockchain=service_chain,
         )
+
+        if ENABLE_SERVICE_RETRY_TEST and not service_pbft_result:
+            print(
+                "[Main] First Service PBFT attempt failed. Retrying service consensus..."
+            )
+
+            for mec_node in mec_nodes:
+                if mec_node.node_id == 4:
+                    mec_node.is_faulty = False
+                    print("[Main] MEC 4 recovered before Service PBFT retry.")
+
+            service_pbft_result = pbft_consensus_process(
+                mec_nodes=mec_nodes,
+                pending_records=pending_service_records,
+                blockchain=service_chain,
+            )
 
         print("\n[Main] Service PBFT Result:")
         print(service_pbft_result)
