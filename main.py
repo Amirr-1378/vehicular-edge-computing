@@ -18,6 +18,7 @@ from mec_side import (
     verify_certificate,
 )
 from user_side import (
+    calculate_best_response,
     calculate_cost,
     calculate_data_rate,
     calculate_mec_latency,
@@ -36,11 +37,134 @@ from user_side import (
 # BLOCK 38: Simulation Parameters
 # =========================================================
 
+NUM_USERS = 6
+
 NUM_TASKS = 3
 
 simulation_results = []
 
 FAULTY_MEC_IDS = {3}
+
+
+# =========================================================
+# Figure 5 convergence test
+# =========================================================
+
+
+def run_figure5_convergence_test(
+    bandwidth,
+    transmit_power,
+    path_loss_exponent,
+    channel_gain,
+    noise_power,
+    input_size,
+    complexity,
+    mec_cpu_frequency,
+    server_vehicle_cpu_frequency,
+    beta_uplink,
+    beta_downlink,
+    beta_request,
+    beta_result,
+    deadline,
+    value_factor,
+    service_quality,
+    price_ratio,
+    arrival_rates,
+    initial_probabilities,
+):
+    figure5_probabilities = initial_probabilities.copy()
+
+    figure5_distance_to_mec_list = [30, 40, 50, 60, 70, 80]
+    figure5_distance_to_vehicle_list = [10, 10, 10, 10, 10, 10]
+
+    print("\n[Figure 5 Test] Convergence of 6 user vehicles:")
+
+    for iteration in range(50):
+        print(f"\n[Figure 5 Test] Iteration {iteration + 1}")
+
+        for vehicle_index in range(NUM_USERS):
+            figure5_distance_to_mec = figure5_distance_to_mec_list[vehicle_index]
+            figure5_distance_to_vehicle = figure5_distance_to_vehicle_list[
+                vehicle_index
+            ]
+
+            figure5_uplink_rate = calculate_data_rate(
+                bandwidth,
+                transmit_power,
+                figure5_distance_to_mec,
+                path_loss_exponent,
+                channel_gain,
+                noise_power,
+            )
+
+            figure5_downlink_rate = calculate_data_rate(
+                bandwidth,
+                transmit_power,
+                figure5_distance_to_mec,
+                path_loss_exponent,
+                channel_gain,
+                noise_power,
+            )
+
+            figure5_request_rate = calculate_data_rate(
+                bandwidth,
+                transmit_power,
+                figure5_distance_to_vehicle,
+                path_loss_exponent,
+                channel_gain,
+                noise_power,
+            )
+
+            figure5_result_rate = calculate_data_rate(
+                bandwidth,
+                transmit_power,
+                figure5_distance_to_vehicle,
+                path_loss_exponent,
+                channel_gain,
+                noise_power,
+            )
+
+            figure5_mec_latency = calculate_mec_latency(
+                input_size=input_size,
+                complexity=complexity,
+                mec_cpu_frequency=mec_cpu_frequency,
+                uplink_rate=figure5_uplink_rate,
+                downlink_rate=figure5_downlink_rate,
+                beta_uplink=beta_uplink,
+                beta_downlink=beta_downlink,
+            )
+
+            figure5_v2v_latency = calculate_v2v_latency(
+                input_size=input_size,
+                complexity=complexity,
+                server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+                request_rate=figure5_request_rate,
+                result_rate=figure5_result_rate,
+                beta_request=beta_request,
+                beta_result=beta_result,
+            )
+
+            old_probability = figure5_probabilities[vehicle_index]
+
+            new_probability = calculate_best_response(
+                mec_latency=figure5_mec_latency,
+                v2v_latency=figure5_v2v_latency,
+                deadline=deadline,
+                value_factor=value_factor,
+                service_quality=service_quality,
+                price_ratio=price_ratio,
+                arrival_rates=arrival_rates,
+                probabilities=figure5_probabilities,
+                current_vehicle_index=vehicle_index,
+            )
+
+            figure5_probabilities[vehicle_index] = new_probability
+
+            print(
+                f"Vehicle {vehicle_index + 1}: "
+                f"old p = {old_probability:.6f}, "
+                f"new p = {new_probability:.6f}"
+            )
 
 
 # =========================================================
@@ -117,12 +241,12 @@ def run_single_task(
 
     input_size = 1e6
     complexity = 240
-    mec_cpu_frequency = 10e9
+    mec_cpu_frequency = 5e9
 
     beta_uplink = 1.0
-    beta_downlink = 0.2
+    beta_downlink = 0.05
     beta_request = 1.0
-    beta_result = 0.2
+    beta_result = 0.05
 
     # =========================================================
     # BLOCK 25: Select Available Candidate Server Vehicle
@@ -260,10 +384,10 @@ def run_single_task(
     # =========================================================
 
     deadline = 1.0
-    value_factor = 0.3
+    value_factor = 0.7
 
-    arrival_rates = [0.4, 0.5, 0.3]
-    initial_probabilities = [0.6, 0.5, 0.4]
+    arrival_rates = [0.7] * NUM_USERS
+    initial_probabilities = [0.5] * NUM_USERS
     current_vehicle_index = 0
 
     probability_mec = initial_probabilities[current_vehicle_index]
@@ -311,6 +435,32 @@ def run_single_task(
     # =========================================================
     # BLOCK 28: Best Response Update and Convergence
     # =========================================================
+
+    # =========================================================
+    # Figure 5 test function call
+    # =========================================================
+
+    run_figure5_convergence_test(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+        input_size=input_size,
+        complexity=complexity,
+        mec_cpu_frequency=mec_cpu_frequency,
+        server_vehicle_cpu_frequency=selected_candidate.resource,
+        beta_uplink=beta_uplink,
+        beta_downlink=beta_downlink,
+        beta_request=beta_request,
+        beta_result=beta_result,
+        deadline=deadline,
+        value_factor=value_factor,
+        service_quality=selected_candidate.quality,
+        price_ratio=price_ratio,
+        arrival_rates=arrival_rates,
+        initial_probabilities=initial_probabilities,
+    )
 
     converged_probability = run_best_response_until_convergence(
         mec_latency=mec_latency,
@@ -551,7 +701,7 @@ def main():
     server_vehicles = [
         ServerVehicle(
             vehicle_id=1,
-            resource=2e9,
+            resource=1e9,
             trajectory=120.0,
             price_init=0.6,
             period=60.0,
