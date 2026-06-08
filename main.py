@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 from mec_side import (
     MECNode,
     ServerVehicle,
@@ -74,13 +76,42 @@ def run_figure5_convergence_test(
 ):
     figure5_probabilities = initial_probabilities.copy()
 
-    figure5_distance_to_mec_list = [30, 40, 50, 60, 70, 80]
-    figure5_distance_to_vehicle_list = [10, 10, 10, 10, 10, 10]
+    probability_history = []
 
+    figure5_service_quality_list = [
+        0.85,
+        0.75,
+        1.0,
+        0.70,
+        0.80,
+        0.90,
+    ]
+
+    figure5_arrival_rates = [
+        0.70,
+        0.50,
+        0.90,
+        0.50,
+        0.60,
+        0.70,
+    ]
+    figure5_distance_to_mec_list = [30, 50, 70, 30, 50, 70]
+    figure5_distance_to_vehicle_list = [30, 10, 10, 20, 15, 12]
+    figure5_channel_gain_list = [
+        1.6,
+        1.3,
+        0.7,
+        1.5,
+        1.0,
+        0.8,
+    ]
     print("\n[Figure 5 Test] Convergence of 6 user vehicles:")
 
     for iteration in range(50):
+        probability_history.append(figure5_probabilities.copy())
         print(f"\n[Figure 5 Test] Iteration {iteration + 1}")
+
+        new_probabilities = figure5_probabilities.copy()
 
         for vehicle_index in range(NUM_USERS):
             figure5_distance_to_mec = figure5_distance_to_mec_list[vehicle_index]
@@ -93,7 +124,7 @@ def run_figure5_convergence_test(
                 transmit_power,
                 figure5_distance_to_mec,
                 path_loss_exponent,
-                channel_gain,
+                figure5_channel_gain_list[vehicle_index],
                 noise_power,
             )
 
@@ -102,7 +133,7 @@ def run_figure5_convergence_test(
                 transmit_power,
                 figure5_distance_to_mec,
                 path_loss_exponent,
-                channel_gain,
+                figure5_channel_gain_list[vehicle_index],
                 noise_power,
             )
 
@@ -111,7 +142,7 @@ def run_figure5_convergence_test(
                 transmit_power,
                 figure5_distance_to_vehicle,
                 path_loss_exponent,
-                channel_gain,
+                figure5_channel_gain_list[vehicle_index],
                 noise_power,
             )
 
@@ -120,7 +151,7 @@ def run_figure5_convergence_test(
                 transmit_power,
                 figure5_distance_to_vehicle,
                 path_loss_exponent,
-                channel_gain,
+                figure5_channel_gain_list[vehicle_index],
                 noise_power,
             )
 
@@ -151,20 +182,55 @@ def run_figure5_convergence_test(
                 v2v_latency=figure5_v2v_latency,
                 deadline=deadline,
                 value_factor=value_factor,
-                service_quality=service_quality,
+                # service_quality=service_quality,
+                service_quality=figure5_service_quality_list[vehicle_index],
                 price_ratio=price_ratio,
-                arrival_rates=arrival_rates,
+                # arrival_rates=arrival_rates,
+                arrival_rates=figure5_arrival_rates,
                 probabilities=figure5_probabilities,
                 current_vehicle_index=vehicle_index,
             )
 
-            figure5_probabilities[vehicle_index] = new_probability
+            new_probabilities[vehicle_index] = new_probability
 
             print(
                 f"Vehicle {vehicle_index + 1}: "
                 f"old p = {old_probability:.6f}, "
                 f"new p = {new_probability:.6f}"
             )
+        figure5_probabilities = new_probabilities
+
+    print("\nFinal probabilities:")
+    print(probability_history[-1])
+    return probability_history
+
+
+# =========================================================
+# Figure 5 Convergence Plotting Function
+# =========================================================
+
+
+def plot_figure5_convergence(probability_history):
+    iterations = list(range(1, len(probability_history) + 1))
+
+    for vehicle_index in range(NUM_USERS):
+        vehicle_probabilities = [
+            iteration_probabilities[vehicle_index]
+            for iteration_probabilities in probability_history
+        ]
+
+        plt.plot(
+            iterations,
+            vehicle_probabilities,
+            label=f"Vehicle {vehicle_index + 1}",
+        )
+
+    plt.xlabel("Iteration")
+    plt.ylabel("Offloading probability")
+    plt.title("Figure 5 - Convergence of Offloading Probability")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
 # =========================================================
@@ -234,8 +300,8 @@ def run_single_task(
     debug_print(received_capacity_info)
 
     bandwidth = 10e6
-    transmit_power = 0.5
-    path_loss_exponent = 3.0
+    transmit_power = 0.2
+    path_loss_exponent = 4.0
     channel_gain = 1.0
     noise_power = 1e-9
 
@@ -393,7 +459,8 @@ def run_single_task(
     probability_mec = initial_probabilities[current_vehicle_index]
 
     price_mec = 1.0
-    price_ratio = selected_candidate.price / price_mec
+    # price_ratio = selected_candidate.price / price_mec
+    price_ratio = 0.7
 
     utility = calculate_utility(
         probability_mec=probability_mec,
@@ -440,7 +507,7 @@ def run_single_task(
     # Figure 5 test function call
     # =========================================================
 
-    run_figure5_convergence_test(
+    figure5_history = run_figure5_convergence_test(
         bandwidth=bandwidth,
         transmit_power=transmit_power,
         path_loss_exponent=path_loss_exponent,
@@ -461,6 +528,20 @@ def run_single_task(
         arrival_rates=arrival_rates,
         initial_probabilities=initial_probabilities,
     )
+
+    print("\n[Figure 5 Test] Stored history length:")
+    print(len(figure5_history))
+
+    print("[Figure 5 Test] Number of vehicles in first iteration:")
+    print(len(figure5_history[0]))
+
+    print("[Figure 5 Test] First stored probabilities:")
+    print(figure5_history[0])
+
+    print("[Figure 5 Test] Last stored probabilities:")
+    print(figure5_history[-1])
+
+    plot_figure5_convergence(figure5_history)
 
     converged_probability = run_best_response_until_convergence(
         mec_latency=mec_latency,
