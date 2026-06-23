@@ -52,6 +52,12 @@ FAULTY_MEC_IDS = {3}
 # Figure 5 convergence test
 # =========================================================
 
+# Figure 5 scenario reconstruction:
+# The paper gives the common parameters in Table I
+# but does not provide per-vehicle distances, channel gains,
+# or initial probabilities. These lists are used to reproduce
+# the qualitative convergence behavior shown in Fig. 5.
+
 
 def run_figure5_convergence_test(
     bandwidth,
@@ -87,14 +93,15 @@ def run_figure5_convergence_test(
         0.90,
     ]
 
-    figure5_arrival_rates = [
-        0.70,
-        0.50,
-        0.90,
-        0.50,
-        0.60,
-        0.70,
-    ]
+    # figure5_arrival_rates = [
+    #     0.70,
+    #     0.50,
+    #     0.90,
+    #     0.50,
+    #     0.60,
+    #     0.70,
+    # ]
+    figure5_arrival_rates = [0.7] * NUM_USERS
     figure5_distance_to_mec_list = [30, 50, 70, 30, 50, 70]
     figure5_distance_to_vehicle_list = [30, 10, 10, 20, 15, 12]
     figure5_channel_gain_list = [
@@ -301,7 +308,7 @@ def run_single_task(
 
     bandwidth = 10e6
     transmit_power = 0.2
-    path_loss_exponent = 4.0
+    path_loss_exponent = 2.0
     channel_gain = 1.0
     noise_power = 1e-9
 
@@ -453,7 +460,15 @@ def run_single_task(
     value_factor = 0.7
 
     arrival_rates = [0.7] * NUM_USERS
-    initial_probabilities = [0.5] * NUM_USERS
+    # initial_probabilities = [0.5] * NUM_USERS
+    initial_probabilities = [
+        0.75,
+        0.70,
+        0.65,
+        0.95,
+        0.90,
+        1.00,
+    ]
     current_vehicle_index = 0
 
     probability_mec = initial_probabilities[current_vehicle_index]
