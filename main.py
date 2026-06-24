@@ -241,6 +241,212 @@ def plot_figure5_convergence(probability_history):
 
 
 # =========================================================
+# Figure 6 Average Probability Calculation Function
+# =========================================================
+
+
+def calculate_figure6_average_probability(
+    num_vehicles,
+    arrival_rate,
+    price_ratio,
+):
+    probabilities = [0.5] * num_vehicles
+    arrival_rates = [arrival_rate] * num_vehicles
+
+    max_iterations = 100
+    tolerance = 1e-4
+
+    bandwidth = 10e6
+    transmit_power = 0.2
+    path_loss_exponent = 2.0  # noqa: F841
+    channel_gain = 1.0
+    noise_power = 1e-9
+
+    input_size = 1e6
+    complexity = 240
+    mec_cpu_frequency = 5e9
+    server_vehicle_cpu_frequency = 1e9
+
+    beta_uplink = 1.0
+    beta_downlink = 0.05
+    beta_request = 1.0
+    beta_result = 0.05
+
+    distance_to_mec = 50.0
+    distance_to_vehicle = 10.0  # noqa: F841
+
+    # mec_latency = 0.06
+    # v2v_latency = 0.24
+
+    uplink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    downlink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    request_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    result_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    mec_latency = calculate_mec_latency(
+        input_size=input_size,
+        complexity=complexity,
+        mec_cpu_frequency=mec_cpu_frequency,
+        uplink_rate=uplink_rate,
+        downlink_rate=downlink_rate,
+        beta_uplink=beta_uplink,
+        beta_downlink=beta_downlink,
+    )
+
+    v2v_latency = calculate_v2v_latency(
+        input_size=input_size,
+        complexity=complexity,
+        server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+        request_rate=request_rate,
+        result_rate=result_rate,
+        beta_request=beta_request,
+        beta_result=beta_result,
+    )
+
+    deadline = 1.0
+    value_factor = 0.7
+    service_quality = 0.9
+
+    for _ in range(max_iterations):
+        old_probabilities = probabilities.copy()
+        new_probabilities = probabilities.copy()
+
+        for vehicle_index in range(num_vehicles):
+            new_probabilities[vehicle_index] = calculate_best_response(
+                mec_latency=mec_latency,
+                v2v_latency=v2v_latency,
+                deadline=deadline,
+                value_factor=value_factor,
+                service_quality=service_quality,
+                price_ratio=price_ratio,
+                arrival_rates=arrival_rates,
+                probabilities=old_probabilities,
+                current_vehicle_index=vehicle_index,
+            )
+
+        probabilities = new_probabilities
+
+        max_difference = max(
+            abs(probabilities[index] - old_probabilities[index])
+            for index in range(num_vehicles)
+        )
+
+        if max_difference < tolerance:
+            break
+
+    average_probability = sum(probabilities) / len(probabilities)
+
+    # if num_vehicles == 1:
+    #     print(
+    #         f"N=1, lambda={arrival_rate}, "
+    #         f"rho={price_ratio}, "
+    #         f"average={average_probability}"
+    #     )
+
+    return average_probability
+
+
+# =========================================================
+# Figure 6 test
+# =========================================================
+def run_figure6_test():
+    vehicle_counts = range(2, 71)
+
+    figure6_scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure6_results = {}
+
+    for scenario in figure6_scenarios:
+        print(
+            f"\n[Figure 6 Test] "
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+        average_probabilities = []
+
+        for num_vehicles in vehicle_counts:
+            average_probability = calculate_figure6_average_probability(
+                num_vehicles=num_vehicles,
+                arrival_rate=scenario["arrival_rate"],
+                price_ratio=scenario["price_ratio"],
+            )
+
+            average_probabilities.append(average_probability)
+        print(f"Stored {len(average_probabilities)} points")
+
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
+        )
+
+        figure6_results[scenario_label] = average_probabilities
+
+    return vehicle_counts, figure6_results
+
+
+# =========================================================
+# Plotting Function for Figure 6 Results
+# =========================================================
+
+
+def plot_figure6_results(
+    vehicle_counts,
+    figure6_results,
+):
+    vehicle_counts = list(vehicle_counts)
+
+    for label, average_probabilities in figure6_results.items():
+        plt.plot(
+            vehicle_counts,
+            average_probabilities,
+            label=label,
+        )
+
+    plt.xlabel("Number of Vehicles")
+    plt.ylabel("Average Offloading Probability")
+    plt.title("Figure 6 - Average Offloading Probability")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+# =========================================================
 # BLOCK 76: Single Task Simulation Function
 # =========================================================
 
@@ -522,41 +728,41 @@ def run_single_task(
     # Figure 5 test function call
     # =========================================================
 
-    figure5_history = run_figure5_convergence_test(
-        bandwidth=bandwidth,
-        transmit_power=transmit_power,
-        path_loss_exponent=path_loss_exponent,
-        channel_gain=channel_gain,
-        noise_power=noise_power,
-        input_size=input_size,
-        complexity=complexity,
-        mec_cpu_frequency=mec_cpu_frequency,
-        server_vehicle_cpu_frequency=selected_candidate.resource,
-        beta_uplink=beta_uplink,
-        beta_downlink=beta_downlink,
-        beta_request=beta_request,
-        beta_result=beta_result,
-        deadline=deadline,
-        value_factor=value_factor,
-        service_quality=selected_candidate.quality,
-        price_ratio=price_ratio,
-        arrival_rates=arrival_rates,
-        initial_probabilities=initial_probabilities,
-    )
+    # figure5_history = run_figure5_convergence_test(
+    #     bandwidth=bandwidth,
+    #     transmit_power=transmit_power,
+    #     path_loss_exponent=path_loss_exponent,
+    #     channel_gain=channel_gain,
+    #     noise_power=noise_power,
+    #     input_size=input_size,
+    #     complexity=complexity,
+    #     mec_cpu_frequency=mec_cpu_frequency,
+    #     server_vehicle_cpu_frequency=selected_candidate.resource,
+    #     beta_uplink=beta_uplink,
+    #     beta_downlink=beta_downlink,
+    #     beta_request=beta_request,
+    #     beta_result=beta_result,
+    #     deadline=deadline,
+    #     value_factor=value_factor,
+    #     service_quality=selected_candidate.quality,
+    #     price_ratio=price_ratio,
+    #     arrival_rates=arrival_rates,
+    #     initial_probabilities=initial_probabilities,
+    # )
 
-    print("\n[Figure 5 Test] Stored history length:")
-    print(len(figure5_history))
+    # print("\n[Figure 5 Test] Stored history length:")
+    # print(len(figure5_history))
 
-    print("[Figure 5 Test] Number of vehicles in first iteration:")
-    print(len(figure5_history[0]))
+    # print("[Figure 5 Test] Number of vehicles in first iteration:")
+    # print(len(figure5_history[0]))
 
-    print("[Figure 5 Test] First stored probabilities:")
-    print(figure5_history[0])
+    # print("[Figure 5 Test] First stored probabilities:")
+    # print(figure5_history[0])
 
-    print("[Figure 5 Test] Last stored probabilities:")
-    print(figure5_history[-1])
+    # print("[Figure 5 Test] Last stored probabilities:")
+    # print(figure5_history[-1])
 
-    plot_figure5_convergence(figure5_history)
+    # plot_figure5_convergence(figure5_history)
 
     converged_probability = run_best_response_until_convergence(
         mec_latency=mec_latency,
@@ -846,6 +1052,15 @@ def main():
             is_faulty=4 in FAULTY_MEC_IDS,
         ),
     ]
+
+    print("\n===== FIGURE 6 TEST =====")
+    vehicle_counts, figure6_results = run_figure6_test()
+    plot_figure6_results(
+        vehicle_counts=vehicle_counts,
+        figure6_results=figure6_results,
+    )
+
+    return
 
     for task_counter in range(1, NUM_TASKS + 1):
         task_result = run_single_task(
