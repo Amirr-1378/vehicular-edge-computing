@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 from mec_side import (
     MECNode,
@@ -249,6 +250,7 @@ def calculate_figure6_average_probability(
     num_vehicles,
     arrival_rate,
     price_ratio,
+    value_factor=0.7,
 ):
     probabilities = [0.5] * num_vehicles
     arrival_rates = [arrival_rate] * num_vehicles
@@ -335,7 +337,7 @@ def calculate_figure6_average_probability(
     )
 
     deadline = 1.0
-    value_factor = 0.7
+    # value_factor = 0.7
     service_quality = 0.9
 
     for _ in range(max_iterations):
@@ -378,7 +380,29 @@ def calculate_figure6_average_probability(
 
 
 # =========================================================
-# Figure 6 test
+# Figure 7 Average Probability Calculation Function
+# =========================================================
+
+
+def calculate_figure7_average_probability(
+    value_factor,
+    arrival_rate,
+    price_ratio,
+):
+    num_vehicles = 10
+
+    average_probability = calculate_figure6_average_probability(
+        num_vehicles=num_vehicles,
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
+        value_factor=value_factor,
+    )
+
+    return average_probability
+
+
+# =========================================================
+# Figure 6 Test Function
 # =========================================================
 def run_figure6_test():
     vehicle_counts = range(2, 71)
@@ -441,6 +465,77 @@ def plot_figure6_results(
     plt.xlabel("Number of Vehicles")
     plt.ylabel("Average Offloading Probability")
     plt.title("Figure 6 - Average Offloading Probability")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+# =========================================================
+# Figure 7 Test Function
+# =========================================================
+
+
+def run_figure7_test():
+    value_factors = np.linspace(0, 1, 21)
+
+    figure7_scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure7_results = {}
+
+    for scenario in figure7_scenarios:
+        average_probabilities = []
+
+        print(
+            f"\n[Figure 7 Test] "
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        for value_factor in value_factors:
+            average_probability = calculate_figure7_average_probability(
+                value_factor=value_factor,
+                arrival_rate=scenario["arrival_rate"],
+                price_ratio=scenario["price_ratio"],
+            )
+
+            average_probabilities.append(average_probability)
+
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
+        )
+
+        figure7_results[scenario_label] = average_probabilities
+
+        print(f"Stored {len(average_probabilities)} points")
+
+    return value_factors, figure7_results
+
+
+# =========================================================
+# Plotting Function for Figure 7 Results
+# =========================================================
+
+
+def plot_figure7_results(
+    value_factors,
+    figure7_results,
+):
+    for label, average_probabilities in figure7_results.items():
+        plt.plot(
+            value_factors,
+            average_probabilities,
+            label=label,
+        )
+
+    plt.xlabel("Value Factor")
+    plt.ylabel("Average Offloading Probability")
+    plt.title("Figure 7 - Average Offloading Probability vs Value Factor")
     plt.legend()
     plt.grid(True)
     plt.show()
@@ -1058,6 +1153,13 @@ def main():
     plot_figure6_results(
         vehicle_counts=vehicle_counts,
         figure6_results=figure6_results,
+    )
+
+    print("\n===== FIGURE 7 TEST =====")
+    value_factors, figure7_results = run_figure7_test()
+    plot_figure7_results(
+        value_factors=value_factors,
+        figure7_results=figure7_results,
     )
 
     return
