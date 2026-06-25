@@ -402,6 +402,32 @@ def calculate_figure7_average_probability(
 
 
 # =========================================================
+# Figure 8 Expected Latency Calculation Function
+# =========================================================
+
+
+def calculate_figure8_expected_latency(
+    value_factor,
+    arrival_rate,
+    price_ratio,
+):
+    average_probability = calculate_figure7_average_probability(
+        value_factor=value_factor,
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
+    )
+
+    mec_latency = 0.055
+    v2v_latency = 0.245
+
+    expected_latency = (
+        average_probability * mec_latency + (1.0 - average_probability) * v2v_latency
+    )
+
+    return expected_latency
+
+
+# =========================================================
 # Figure 6 Test Function
 # =========================================================
 def run_figure6_test():
@@ -518,6 +544,53 @@ def run_figure7_test():
 
 
 # =========================================================
+# Figure 8 Test Function
+# =========================================================
+
+
+def run_figure8_test():
+    value_factors = [i / 20 for i in range(21)]
+
+    figure8_scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure8_results = {}
+
+    for scenario in figure8_scenarios:
+        expected_latencies = []
+
+        print(
+            f"\n[Figure 8 Test] "
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        for value_factor in value_factors:
+            expected_latency = calculate_figure8_expected_latency(
+                value_factor=value_factor,
+                arrival_rate=scenario["arrival_rate"],
+                price_ratio=scenario["price_ratio"],
+            )
+
+            expected_latencies.append(expected_latency)
+
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
+        )
+
+        figure8_results[scenario_label] = expected_latencies
+
+        print(f"Stored {len(expected_latencies)} points")
+
+    return value_factors, figure8_results
+
+
+# =========================================================
 # Plotting Function for Figure 7 Results
 # =========================================================
 
@@ -538,6 +611,33 @@ def plot_figure7_results(
     plt.title("Figure 7 - Average Offloading Probability vs Value Factor")
     plt.legend()
     plt.grid(True)
+    plt.show()
+
+
+# =========================================================
+# Plotting Function for Figure 8 Results
+# =========================================================
+
+
+def plot_figure8_results(
+    value_factors,
+    figure8_results,
+):
+    plt.figure(figsize=(12, 7))
+
+    for label, expected_latencies in figure8_results.items():
+        plt.plot(
+            value_factors,
+            expected_latencies,
+            label=label,
+        )
+
+    plt.title("Figure 8 - Expected Latency vs Value Factor")
+    plt.xlabel("Value Factor")
+    plt.ylabel("Expected Latency (s)")
+    plt.grid(True)
+    plt.legend()
+
     plt.show()
 
 
@@ -1160,6 +1260,13 @@ def main():
     plot_figure7_results(
         value_factors=value_factors,
         figure7_results=figure7_results,
+    )
+
+    print("\n===== FIGURE 8 TEST =====")
+    value_factors, figure8_results = run_figure8_test()
+    plot_figure8_results(
+        value_factors=value_factors,
+        figure8_results=figure8_results,
     )
 
     return
