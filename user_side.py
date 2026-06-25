@@ -349,13 +349,13 @@ def calculate_best_response(
     if denominator == 0:
         return 1.0
 
-    if current_vehicle_index == 0:
-        print(
-            f"mec={mec_value:.4f}, "
-            f"v2v={v2v_value:.4f}, "
-            f"competition={competition_term:.4f}, "
-            f"denominator={denominator:.4f}"
-        )
+    # if current_vehicle_index == 0:
+    #     print(
+    #         f"mec={mec_value:.4f}, "
+    #         f"v2v={v2v_value:.4f}, "
+    #         f"competition={competition_term:.4f}, "
+    #         f"denominator={denominator:.4f}"
+    #     )
 
     best_response = (mec_value - v2v_value + price_ratio) / denominator
 
