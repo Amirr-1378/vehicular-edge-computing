@@ -1,4 +1,2 @@
-# External Python packages required by the current simulation.
-# The current code uses only Python standard-library modules:
-# dataclasses, time, math, random.
-# Add third-party packages here later if the reproduction code starts using them.
+numpy
+matplotlib
