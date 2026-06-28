@@ -524,27 +524,137 @@ def calculate_figure9_offloading_probability(
         beta_result=beta_result,
     )
 
-    for _ in range(max_iterations):
-        old_probability = probabilities[current_vehicle_index]
+    base_service_quality = 0.7
 
-        new_probability = calculate_best_response(
-            mec_latency=mec_latency,
-            v2v_latency=v2v_latency,
-            deadline=deadline,
-            value_factor=value_factor,
-            service_quality=service_quality,
-            price_ratio=price_ratio,
-            arrival_rates=arrival_rates,
-            probabilities=probabilities,
-            current_vehicle_index=current_vehicle_index,
+    for _ in range(max_iterations):
+        old_probabilities = probabilities.copy()
+        new_probabilities = probabilities.copy()
+
+        for vehicle_index in range(num_vehicles):
+            if vehicle_index == current_vehicle_index:
+                vehicle_service_quality = service_quality
+            else:
+                vehicle_service_quality = base_service_quality
+
+            new_probabilities[vehicle_index] = calculate_best_response(
+                mec_latency=mec_latency,
+                v2v_latency=v2v_latency,
+                deadline=deadline,
+                value_factor=value_factor,
+                service_quality=vehicle_service_quality,
+                price_ratio=price_ratio,
+                arrival_rates=arrival_rates,
+                probabilities=old_probabilities,
+                current_vehicle_index=vehicle_index,
+            )
+
+        probabilities = new_probabilities
+
+        max_difference = max(
+            abs(probabilities[index] - old_probabilities[index])
+            for index in range(num_vehicles)
         )
 
-        probabilities[current_vehicle_index] = new_probability
-
-        if abs(new_probability - old_probability) < tolerance:
+        if max_difference < tolerance:
             break
 
     return probabilities[current_vehicle_index]
+
+
+# =========================================================
+# Figure 10 Latency Function
+# =========================================================
+
+
+def calculate_figure10_latency(
+    service_quality,
+    arrival_rate,
+    price_ratio,
+):
+    probability = calculate_figure9_offloading_probability(
+        service_quality=service_quality,
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
+    )
+
+    bandwidth = 10e6
+    transmit_power = 0.2
+    path_loss_exponent = 2.0
+    channel_gain = 1.0
+    noise_power = 1e-9
+
+    input_size = 1e6
+    complexity = 240
+    mec_cpu_frequency = 5e9
+    server_vehicle_cpu_frequency = 1e9
+
+    beta_uplink = 1.0
+    beta_downlink = 0.05
+    beta_request = 1.0
+    beta_result = 0.05
+
+    distance_to_mec = 50.0
+    distance_to_vehicle = 10.0
+
+    uplink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    downlink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    request_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    result_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    mec_latency = calculate_mec_latency(
+        input_size=input_size,
+        complexity=complexity,
+        mec_cpu_frequency=mec_cpu_frequency,
+        uplink_rate=uplink_rate,
+        downlink_rate=downlink_rate,
+        beta_uplink=beta_uplink,
+        beta_downlink=beta_downlink,
+    )
+
+    v2v_latency = calculate_v2v_latency(
+        input_size=input_size,
+        complexity=complexity,
+        server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+        request_rate=request_rate,
+        result_rate=result_rate,
+        beta_request=beta_request,
+        beta_result=beta_result,
+    )
+
+    expected_latency = probability * mec_latency + (1.0 - probability) * v2v_latency
+
+    return expected_latency
 
 
 # =========================================================
@@ -661,6 +771,51 @@ def run_figure7_test():
         print(f"Stored {len(average_probabilities)} points")
 
     return value_factors, figure7_results
+
+
+# =========================================================
+# Figure 10 Test Function
+# =========================================================
+def run_figure10_test():
+    service_quality_values = [i / 20 for i in range(21)]
+
+    figure10_scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure10_results = {}
+
+    for scenario in figure10_scenarios:
+        expected_latencies = []
+
+        print(
+            f"\n[Figure 10 Test] "
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        for service_quality in service_quality_values:
+            expected_latency = calculate_figure10_latency(
+                service_quality=service_quality,
+                arrival_rate=scenario["arrival_rate"],
+                price_ratio=scenario["price_ratio"],
+            )
+
+            expected_latencies.append(expected_latency)
+
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
+        )
+
+        figure10_results[scenario_label] = expected_latencies
+
+        print(f"Stored {len(expected_latencies)} points")
+
+    return service_quality_values, figure10_results
 
 
 # =========================================================
@@ -829,6 +984,31 @@ def plot_figure9_results(
     plt.title("Figure 9 - Offloading Probability vs Service Quality")
     plt.xlabel("Service Quality")
     plt.ylabel("Offloading Probability")
+    plt.grid(True)
+    plt.legend()
+
+    plt.show()
+
+
+# =========================================================
+# Plotting Function for Figure 10 Results
+# =========================================================
+def plot_figure10_results(
+    service_quality_values,
+    figure10_results,
+):
+    plt.figure(figsize=(12, 7))
+
+    for label, expected_latencies in figure10_results.items():
+        plt.plot(
+            service_quality_values,
+            expected_latencies,
+            label=label,
+        )
+
+    plt.title("Figure 10 - Expected Latency vs Service Quality")
+    plt.xlabel("Service Quality")
+    plt.ylabel("Expected Latency (s)")
     plt.grid(True)
     plt.legend()
 
@@ -1468,6 +1648,13 @@ def main():
     plot_figure9_results(
         service_quality_values=service_quality_values,
         figure9_results=figure9_results,
+    )
+
+    print("\n===== FIGURE 10 TEST =====")
+    service_quality_values, figure10_results = run_figure10_test()
+    plot_figure10_results(
+        service_quality_values=service_quality_values,
+        figure10_results=figure10_results,
     )
 
     return
