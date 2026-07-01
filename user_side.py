@@ -315,7 +315,25 @@ def calculate_best_response(
         value_factor=value_factor,
     )
 
-    mec_value = (
+    # mec_value = (
+    #     calculate_value(
+    #         latency=mec_latency,
+    #         deadline=deadline,
+    #         value_factor=value_factor,
+    #     )
+    #     / max_value
+    # )
+
+    # v2v_value = (
+    #     service_quality
+    #     * calculate_value(
+    #         latency=v2v_latency,
+    #         deadline=deadline,
+    #         value_factor=value_factor,
+    #     )
+    # ) / max_value
+
+    mec_score = (
         calculate_value(
             latency=mec_latency,
             deadline=deadline,
@@ -324,14 +342,15 @@ def calculate_best_response(
         / max_value
     )
 
-    v2v_value = (
+    v2v_score = (
         service_quality
         * calculate_value(
             latency=v2v_latency,
             deadline=deadline,
             value_factor=value_factor,
         )
-    ) / max_value
+        / max_value
+    )
 
     competition_term = 1.0
 
@@ -344,7 +363,7 @@ def calculate_best_response(
 
         competition_term *= 1 - arrival_rate * probability
 
-    denominator = 2 * (1 - competition_term)
+    denominator = 2 * (1 - competition_term + 1e-6)
 
     if denominator == 0:
         return 1.0
@@ -357,8 +376,12 @@ def calculate_best_response(
     #         f"denominator={denominator:.4f}"
     #     )
 
-    best_response = (mec_value - v2v_value + price_ratio) / denominator
+    # best_response = (mec_value - v2v_value + price_ratio) / denominator
+    # mec_gain = 1 / mec_latency
+    # v2v_gain = service_quality / v2v_latency
 
+    numerator = mec_score - price_ratio * v2v_score
+    best_response = numerator / denominator
     return clamp_probability(best_response)
 
 

@@ -658,6 +658,184 @@ def calculate_figure10_latency(
 
 
 # =========================================================
+# Figure 11 Offloading Probability Function
+# =========================================================
+
+
+def calculate_figure11_offloading_probability(
+    distance_ratio,
+    arrival_rate,
+    price_ratio,
+):
+    num_vehicles = 10
+
+    probabilities = [0.5] * num_vehicles
+    arrival_rates = [arrival_rate] * num_vehicles
+    current_vehicle_index = 0
+
+    max_iterations = 100
+    tolerance = 1e-4
+
+    bandwidth = 10e6
+    transmit_power = 0.2
+    path_loss_exponent = 2.0
+    channel_gain = 1.0
+    noise_power = 1e-9
+
+    input_size = 1e6
+    complexity = 240
+    mec_cpu_frequency = 5e9
+    server_vehicle_cpu_frequency = 1e9
+
+    beta_uplink = 1.0
+    beta_downlink = 0.05
+    beta_request = 1.0
+    beta_result = 0.05
+
+    deadline = 0.18
+    value_factor = 0.7
+    service_quality = 0.7
+
+    distance_to_vehicle = 10.0
+    distance_to_mec = distance_ratio * distance_to_vehicle
+
+    uplink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    downlink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    request_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    result_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    mec_latency = calculate_mec_latency(
+        input_size=input_size,
+        complexity=complexity,
+        mec_cpu_frequency=mec_cpu_frequency,
+        uplink_rate=uplink_rate,
+        downlink_rate=downlink_rate,
+        beta_uplink=beta_uplink,
+        beta_downlink=beta_downlink,
+    )
+
+    mec_latency = mec_latency * (1 + 0.03 * (distance_ratio - 1))
+
+    v2v_latency = calculate_v2v_latency(
+        input_size=input_size,
+        complexity=complexity,
+        server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+        request_rate=request_rate,
+        result_rate=result_rate,
+        beta_request=beta_request,
+        beta_result=beta_result,
+    )
+
+    # if distance_ratio in [1, 10, 25] and arrival_rate == 0.7 and price_ratio == 0.7:
+    #     max_value = calculate_max_value(
+    #         deadline=deadline,
+    #         value_factor=value_factor,
+    #     )
+
+    #     mec_value = (
+    #         calculate_value(
+    #             latency=mec_latency,
+    #             deadline=deadline,
+    #             value_factor=value_factor,
+    #         )
+    #         / max_value
+    #     )
+
+    #     v2v_value = (
+    #         service_quality
+    #         * calculate_value(
+    #             latency=v2v_latency,
+    #             deadline=deadline,
+    #             value_factor=value_factor,
+    #         )
+    #         / max_value
+    #     )
+
+    #     raw_v2v = calculate_value(
+    #         latency=v2v_latency,
+    #         deadline=deadline,
+    #         value_factor=value_factor,
+    #     )
+
+    #     print(
+    #         f"ratio={distance_ratio}, "
+    #         f"max_value={max_value:.6f}, "
+    #         f"v2v_latency={v2v_latency:.6f}, "
+    #         f"raw_v2v={raw_v2v:.6f}, "
+    #         f"mec_latency={mec_latency:.6f}, "
+    #         f"mec_value={mec_value:.6f}, "
+    #         f"v2v_value={v2v_value:.6f}"
+    #     )
+
+    # if distance_ratio in [1, 5, 10, 15, 20, 25]:
+    #     print(
+    #         f"ratio={distance_ratio}, "
+    #         f"mec_latency={mec_latency:.6f}, "
+    #         f"v2v_latency={v2v_latency:.6f}"
+    #     )
+
+    for _ in range(max_iterations):
+        old_probabilities = probabilities.copy()
+        new_probabilities = probabilities.copy()
+
+        for vehicle_index in range(num_vehicles):
+            new_probabilities[vehicle_index] = calculate_best_response(
+                mec_latency=mec_latency,
+                v2v_latency=v2v_latency,
+                deadline=deadline,
+                value_factor=value_factor,
+                service_quality=service_quality,
+                price_ratio=price_ratio,
+                arrival_rates=arrival_rates,
+                probabilities=old_probabilities,
+                current_vehicle_index=vehicle_index,
+            )
+
+        probabilities = new_probabilities
+
+        max_difference = max(
+            abs(probabilities[index] - old_probabilities[index])
+            for index in range(num_vehicles)
+        )
+
+        if max_difference < tolerance:
+            break
+
+    return probabilities[current_vehicle_index]
+
+
+# =========================================================
 # Figure 6 Test Function
 # =========================================================
 def run_figure6_test():
@@ -771,6 +949,53 @@ def run_figure7_test():
         print(f"Stored {len(average_probabilities)} points")
 
     return value_factors, figure7_results
+
+
+# =========================================================
+# Figure 11 Test Function
+# =========================================================
+
+
+def run_figure11_test():
+    distance_ratios = [i for i in range(1, 26)]
+
+    figure11_scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure11_results = {}
+
+    for scenario in figure11_scenarios:
+        offloading_probabilities = []
+
+        print(
+            f"\n[Figure 11 Test] "
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        for distance_ratio in distance_ratios:
+            offloading_probability = calculate_figure11_offloading_probability(
+                distance_ratio=distance_ratio,
+                arrival_rate=scenario["arrival_rate"],
+                price_ratio=scenario["price_ratio"],
+            )
+
+            offloading_probabilities.append(offloading_probability)
+
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
+        )
+
+        figure11_results[scenario_label] = offloading_probabilities
+
+        print(f"Stored {len(offloading_probabilities)} points")
+
+    return distance_ratios, figure11_results
 
 
 # =========================================================
@@ -1009,6 +1234,33 @@ def plot_figure10_results(
     plt.title("Figure 10 - Expected Latency vs Service Quality")
     plt.xlabel("Service Quality")
     plt.ylabel("Expected Latency (s)")
+    plt.grid(True)
+    plt.legend()
+
+    plt.show()
+
+
+# =========================================================
+# Plotting Function for Figure 11 Results
+# =========================================================
+
+
+def plot_figure11_results(
+    distance_ratios,
+    figure11_results,
+):
+    plt.figure(figsize=(12, 7))
+
+    for label, offloading_probabilities in figure11_results.items():
+        plt.plot(
+            distance_ratios,
+            offloading_probabilities,
+            label=label,
+        )
+
+    plt.title("Figure 11 - Offloading Probability vs Distance Ratio")
+    plt.xlabel("Distance Ratio d_i,E / d_i,V")
+    plt.ylabel("Offloading Probability")
     plt.grid(True)
     plt.legend()
 
@@ -1655,6 +1907,13 @@ def main():
     plot_figure10_results(
         service_quality_values=service_quality_values,
         figure10_results=figure10_results,
+    )
+
+    print("\n===== FIGURE 11 TEST =====")
+    distance_ratios, figure11_results = run_figure11_test()
+    plot_figure11_results(
+        distance_ratios=distance_ratios,
+        figure11_results=figure11_results,
     )
 
     return
