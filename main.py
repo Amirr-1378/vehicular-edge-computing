@@ -257,6 +257,7 @@ def calculate_figure6_average_probability(
 
     max_iterations = 100
     tolerance = 1e-4
+    relaxation_factor = 0.5
 
     bandwidth = 10e6
     transmit_power = 0.2
@@ -338,14 +339,22 @@ def calculate_figure6_average_probability(
 
     deadline = 1.0
     # value_factor = 0.7
-    service_quality = 0.9
+
+    base_service_quality = 0.9125
+    quality_price_coupling = 0.30
+
+    service_quality = base_service_quality + quality_price_coupling * (
+        price_ratio - 0.7
+    )
+
+    service_quality = max(0.0, min(1.0, service_quality))
 
     for _ in range(max_iterations):
         old_probabilities = probabilities.copy()
         new_probabilities = probabilities.copy()
 
         for vehicle_index in range(num_vehicles):
-            new_probabilities[vehicle_index] = calculate_best_response(
+            best_response_probability = calculate_best_response(
                 mec_latency=mec_latency,
                 v2v_latency=v2v_latency,
                 deadline=deadline,
@@ -356,6 +365,12 @@ def calculate_figure6_average_probability(
                 probabilities=old_probabilities,
                 current_vehicle_index=vehicle_index,
             )
+
+            new_probabilities[vehicle_index] = (
+                1.0 - relaxation_factor
+            ) * old_probabilities[
+                vehicle_index
+            ] + relaxation_factor * best_response_probability
 
         probabilities = new_probabilities
 
@@ -836,6 +851,103 @@ def calculate_figure11_offloading_probability(
 
 
 # =========================================================
+# Figure 12 Expected Latency Function
+# =========================================================
+
+
+# def calculate_figure12_expected_latency(
+# distance_ratio,
+# arrival_rate,
+# price_ratio,
+# ):
+# num_vehicles = 10
+#
+# probabilities = [0.5] * num_vehicles
+# arrival_rates = [arrival_rate] * num_vehicles
+#
+# deadline = 1.0
+# value_factor = 0.7
+# service_quality = 0.7
+#
+# distance_to_vehicle = 10.0
+# distance_to_mec = distance_ratio * distance_to_vehicle
+#
+# bandwidth = 10e6
+# transmit_power = 0.2
+# path_loss_exponent = 2.0
+# channel_gain = 1.0
+# noise_power = 1e-9
+#
+# input_size = 1e6
+# complexity = 240
+# mec_cpu_frequency = 5e9
+# server_vehicle_cpu_frequency = 1e9
+#
+# beta_uplink = 1.0
+# beta_downlink = 0.05
+# beta_request = 1.0
+# beta_result = 0.05
+# uplink_rate = calculate_data_rate(
+# bandwidth=bandwidth,
+# transmit_power=transmit_power,
+# distance=distance_to_mec,
+# path_loss_exponent=path_loss_exponent,
+# channel_gain=channel_gain,
+# noise_power=noise_power,
+# )
+#
+# downlink_rate = uplink_rate
+#
+# request_rate = calculate_data_rate(
+# bandwidth=bandwidth,
+# transmit_power=transmit_power,
+# distance=distance_to_vehicle,
+# path_loss_exponent=path_loss_exponent,
+# channel_gain=channel_gain,
+# noise_power=noise_power,
+# )
+#
+# result_rate = request_rate
+#
+# mec_latency = calculate_mec_latency(
+# input_size=input_size,
+# complexity=complexity,
+# mec_cpu_frequency=mec_cpu_frequency,
+# uplink_rate=uplink_rate,
+# downlink_rate=downlink_rate,
+# beta_uplink=beta_uplink,
+# beta_downlink=beta_downlink,
+# )
+#
+# v2v_latency = calculate_v2v_latency(
+# input_size=input_size,
+# complexity=complexity,
+# server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+# request_rate=request_rate,
+# result_rate=result_rate,
+# beta_request=beta_request,
+# beta_result=beta_result,
+# )
+#
+# p_i = calculate_best_response(
+# mec_latency=mec_latency,
+# v2v_latency=v2v_latency,
+# deadline=deadline,
+# value_factor=value_factor,
+# service_quality=service_quality,
+# price_ratio=price_ratio,
+# arrival_rates=arrival_rates,
+# probabilities=probabilities,
+# current_vehicle_index=0,
+# )
+#
+# expected_latency = p_i * mec_latency + (1 - p_i) * v2v_latency
+#
+# return expected_latency
+#
+
+
+# =========================================================
 # Figure 6 Test Function
 # =========================================================
 def run_figure6_test():
@@ -868,6 +980,25 @@ def run_figure6_test():
 
             average_probabilities.append(average_probability)
         print(f"Stored {len(average_probabilities)} points")
+
+        # =========================================================
+        # نمایش مقادیر عددی مهم فیگور ۶ ↓
+        # =========================================================
+
+        selected_vehicle_counts = [2, 5, 10, 20, 40, 70]
+
+        for vehicle_count in selected_vehicle_counts:
+            point_index = vehicle_count - 2
+
+            print(
+                f"N={vehicle_count}, "
+                f"average_probability="
+                f"{average_probabilities[point_index]:.6f}"
+            )
+
+        # =========================================================
+        # نمایش مقادیر عددی مهم فیگور ۶ ↑
+        # =========================================================
 
         scenario_label = (
             f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
@@ -949,6 +1080,42 @@ def run_figure7_test():
         print(f"Stored {len(average_probabilities)} points")
 
     return value_factors, figure7_results
+
+
+# =========================================================
+# Figure 12 Test Function
+# =========================================================
+
+
+# def run_figure12_test():
+#     print("===== FIGURE 12 TEST =====")
+
+#     ratios = [1, 5, 10, 15, 20, 25]
+
+#     lambdas = [0.5, 0.7, 0.9]
+#     rhos = [0.5, 0.7, 0.9]
+
+#     results = []
+
+#     for lam in lambdas:
+#         for rho in rhos:
+
+#             latencies = []
+
+#             print(f"\n[Figure 12 Test] lambda={lam}, rho={rho}")
+
+#             for r in ratios:
+#                 lat = calculate_figure12_expected_latency(
+#                     distance_ratio=r, arrival_rate=lam, price_ratio=rho
+#                 )
+
+#                 print(f"ratio={r}, expected_latency={lat:.6f}")
+
+#                 latencies.append(lat)
+
+#             results.append((lam, rho, latencies))
+
+#     return results
 
 
 # =========================================================
@@ -1265,6 +1432,34 @@ def plot_figure11_results(
     plt.legend()
 
     plt.show()
+
+
+# =========================================================
+# Plotting Function for Figure 12 Results
+# =========================================================
+
+
+# def plot_figure12_results(
+#     distance_ratios,
+#     figure12_results,
+# ):
+#     plt.figure(figsize=(12, 7))
+
+#     for label, latencies in figure12_results.items():
+#         plt.plot(
+#             distance_ratios,
+#             latencies,
+#             marker="o",
+#             label=label,
+#         )
+
+#     plt.title("Figure 12 - Expected Latency vs Distance Ratio")
+#     plt.xlabel("Distance Ratio d_i,E / d_i,V")
+#     plt.ylabel("Expected Latency")
+#     plt.grid(True)
+#     plt.legend()
+
+#     plt.show()
 
 
 # =========================================================
@@ -1880,6 +2075,7 @@ def main():
         vehicle_counts=vehicle_counts,
         figure6_results=figure6_results,
     )
+    return
 
     print("\n===== FIGURE 7 TEST =====")
     value_factors, figure7_results = run_figure7_test()
@@ -1915,6 +2111,16 @@ def main():
         distance_ratios=distance_ratios,
         figure11_results=figure11_results,
     )
+
+    # figure12_results_dict = {}
+
+    # for lam, rho, latencies in figure12_results:
+    #     label = f"λ={lam}, ρ={rho}"
+    #     figure12_results_dict[label] = latencies
+
+    # plot_figure12_results(
+    #     distance_ratios=[1, 5, 10, 15, 20, 25], figure12_results=figure12_results_dict
+    # )
 
     return
 

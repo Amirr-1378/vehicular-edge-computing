@@ -380,7 +380,8 @@ def calculate_best_response(
     # mec_gain = 1 / mec_latency
     # v2v_gain = service_quality / v2v_latency
 
-    numerator = mec_score - price_ratio * v2v_score
+    # numerator = mec_score - price_ratio * v2v_score  ----->   this line was incorrect according to the base paper
+    numerator = mec_score - v2v_score + price_ratio
     best_response = numerator / denominator
     return clamp_probability(best_response)
 
