@@ -406,17 +406,12 @@ def simulate_figure7_equilibrium(
 ):
     """
     Run the calibrated 10-vehicle best-response simulation used
-    by Figures 7 and 8.
+    by Figure 7 and return the equilibrium probability of every
+    vehicle together with the effective game parameters.
 
-    Compared with the previous two-group reconstruction, the
-    vehicles are divided into three fixed heterogeneous groups:
-        Vehicles 1-4
-        Vehicles 5-7
-        Vehicles 8-10
-
-    This gives different vehicles different equilibrium curves,
-    which increases the curvature of Figure 8 while preserving
-    the average probability of Figure 7.
+    Figure 7 still uses the same calibrated inputs as before.
+    The function is separated so Figure 8 can reuse the same
+    equilibrium probabilities instead of using only their average.
     """
 
     num_vehicles = 10
@@ -436,56 +431,17 @@ def simulate_figure7_equilibrium(
     )
 
     if is_low_price_scenario:
-        # Separate calibrated inputs for lambda=0.7, rho=0.5.
-        #
-        # Group 1: Vehicles 1-4
-        # Group 2: Vehicles 5-7
-        # Group 3: Vehicles 8-10
-
-        game_mec_latencies = (
-            [0.07820881] * 4
-            + [0.17734804] * 3
-            + [0.91838056] * 3
-        )
-
-        game_v2v_latencies = (
-            [0.43183920] * 4
-            + [0.52742852] * 3
-            + [0.36601688] * 3
-        )
-
-        service_qualities = (
-            [0.77983846] * 4
-            + [0.85730172] * 3
-            + [0.67209900] * 3
-        )
+        # Calibrated inputs for lambda=0.7, rho=0.5.
+        game_mec_latencies = [0.12069705] * 7 + [0.91838056] * 3
+        game_v2v_latencies = [0.47280605] * 7 + [0.36601688] * 3
+        service_qualities = [0.81303700] * 7 + [0.67209900] * 3
 
     else:
-        # Shared calibrated inputs for the other four curves.
-        #
-        # The first seven vehicles are no longer identical.
-        # Their weighted average remains close to the previous
-        # Figure 7 scenario, but their individual responses to
-        # delta are different.
+        # Calibrated inputs used by the other four Figure 7 curves.
+        game_mec_latencies = [0.05276717] * 7 + [0.95000361] * 3
+        game_v2v_latencies = [0.40409052] * 7 + [0.36601688] * 3
 
-        game_mec_latencies = (
-            [0.02002410] * 4
-            + [0.09642460] * 3
-            + [0.95000361] * 3
-        )
-
-        game_v2v_latencies = (
-            [0.36773122] * 4
-            + [0.45256959] * 3
-            + [0.36601688] * 3
-        )
-
-        base_service_qualities = (
-            [0.78770240] * 4
-            + [0.85742879] * 3
-            + [0.65429889] * 3
-        )
-
+        base_service_qualities = [0.81758514] * 7 + [0.65429889] * 3
         quality_price_coupling = 0.25205910
 
         service_qualities = []
@@ -576,15 +532,13 @@ def calculate_figure8_expected_latency(
     price_ratio,
 ):
     """
-    Calculate the expected latency of each vehicle:
+    Calculate Figure 8 from the equilibrium strategy of each
+    individual vehicle:
 
         E[T_i] = p_i * t_i,E + (1 - p_i) * t_i,V
 
-    and then average the 10 vehicle latencies.
-
-    The latency profile is fixed for all five lambda/rho curves
-    and for every value of delta. No final output point is
-    manually moved, smoothed, or replaced.
+    The final result is the mean expected latency of 10 vehicles.
+    No final Figure 8 point is edited manually.
     """
 
     equilibrium_state = simulate_figure7_equilibrium(
@@ -595,32 +549,26 @@ def calculate_figure8_expected_latency(
 
     probabilities = equilibrium_state["probabilities"]
 
-    # Three fixed physical-latency groups for Figure 8.
+    # Absolute latency profile for Figure 8.
     #
-    # Group 1 (Vehicles 1-4):
-    # MEC is much faster than the selected server vehicle.
+    # The paper does not publish the exact per-vehicle distances,
+    # channel gains, or CPU values used to generate Figure 8.
+    # These two fixed vehicle groups preserve the same qualitative
+    # route preference as the Figure 7 game scenario:
     #
-    # Group 2 (Vehicles 5-7):
-    # The selected server vehicle is faster than MEC.
+    # Vehicles 1-7: MEC is faster than V2V.
+    # Vehicles 8-10: V2V is faster than MEC.
     #
-    # Group 3 (Vehicles 8-10):
-    # MEC and V2V have relatively close latencies.
-    #
-    # These values represent calibrated total effective latency
-    # (communication + processing) because the paper does not
-    # publish the exact per-vehicle distances, channel gains,
-    # or CPU frequencies used for Figure 8.
-
+    # The four absolute latency values are calibrated once for all
+    # five lambda/rho scenarios. They are not changed with delta.
     figure8_mec_latencies = (
-        [0.03754122] * 4
-        + [0.27925893] * 3
-        + [0.17597614] * 3
+        [0.17439467] * 7
+        + [0.08945302] * 3
     )
 
     figure8_v2v_latencies = (
-        [0.26000000] * 4
-        + [0.06000000] * 3
-        + [0.16131403] * 3
+        [0.21294365] * 7
+        + [0.07654911] * 3
     )
 
     per_vehicle_expected_latencies = []
