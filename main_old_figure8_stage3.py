@@ -431,8 +431,7 @@ def simulate_figure7_equilibrium(
     deadline = 0.95095456
 
     is_low_price_scenario = (
-        abs(arrival_rate - 0.7) < 1e-9
-        and abs(price_ratio - 0.5) < 1e-9
+        abs(arrival_rate - 0.7) < 1e-9 and abs(price_ratio - 0.5) < 1e-9
     )
 
     if is_low_price_scenario:
@@ -442,23 +441,11 @@ def simulate_figure7_equilibrium(
         # Group 2: Vehicles 5-7
         # Group 3: Vehicles 8-10
 
-        game_mec_latencies = (
-            [0.07820881] * 4
-            + [0.17734804] * 3
-            + [0.91838056] * 3
-        )
+        game_mec_latencies = [0.07820881] * 4 + [0.17734804] * 3 + [0.91838056] * 3
 
-        game_v2v_latencies = (
-            [0.43183920] * 4
-            + [0.52742852] * 3
-            + [0.36601688] * 3
-        )
+        game_v2v_latencies = [0.43183920] * 4 + [0.52742852] * 3 + [0.36601688] * 3
 
-        service_qualities = (
-            [0.77983846] * 4
-            + [0.85730172] * 3
-            + [0.67209900] * 3
-        )
+        service_qualities = [0.77983846] * 4 + [0.85730172] * 3 + [0.67209900] * 3
 
     else:
         # Shared calibrated inputs for the other four curves.
@@ -468,32 +455,19 @@ def simulate_figure7_equilibrium(
         # Figure 7 scenario, but their individual responses to
         # delta are different.
 
-        game_mec_latencies = (
-            [0.02002410] * 4
-            + [0.09642460] * 3
-            + [0.95000361] * 3
-        )
+        game_mec_latencies = [0.02002410] * 4 + [0.09642460] * 3 + [0.95000361] * 3
 
-        game_v2v_latencies = (
-            [0.36773122] * 4
-            + [0.45256959] * 3
-            + [0.36601688] * 3
-        )
+        game_v2v_latencies = [0.36773122] * 4 + [0.45256959] * 3 + [0.36601688] * 3
 
-        base_service_qualities = (
-            [0.78770240] * 4
-            + [0.85742879] * 3
-            + [0.65429889] * 3
-        )
+        base_service_qualities = [0.78770240] * 4 + [0.85742879] * 3 + [0.65429889] * 3
 
         quality_price_coupling = 0.25205910
 
         service_qualities = []
 
         for base_quality in base_service_qualities:
-            vehicle_quality = (
-                base_quality
-                + quality_price_coupling * (price_ratio - 0.7)
+            vehicle_quality = base_quality + quality_price_coupling * (
+                price_ratio - 0.7
             )
 
             vehicle_quality = max(
@@ -521,19 +495,15 @@ def simulate_figure7_equilibrium(
             )
 
             new_probabilities[vehicle_index] = (
-                (1.0 - relaxation_factor)
-                * old_probabilities[vehicle_index]
-                + relaxation_factor
-                * best_response_probability
-            )
+                1.0 - relaxation_factor
+            ) * old_probabilities[
+                vehicle_index
+            ] + relaxation_factor * best_response_probability
 
         probabilities = new_probabilities
 
         max_difference = max(
-            abs(
-                probabilities[index]
-                - old_probabilities[index]
-            )
+            abs(probabilities[index] - old_probabilities[index])
             for index in range(num_vehicles)
         )
 
@@ -611,162 +581,25 @@ def calculate_figure8_expected_latency(
     # publish the exact per-vehicle distances, channel gains,
     # or CPU frequencies used for Figure 8.
 
-    figure8_mec_latencies = (
-        [0.03754122] * 4
-        + [0.27925893] * 3
-        + [0.17597614] * 3
-    )
+    figure8_mec_latencies = [0.03754122] * 4 + [0.27925893] * 3 + [0.17597614] * 3
 
-    figure8_v2v_latencies = (
-        [0.26000000] * 4
-        + [0.06000000] * 3
-        + [0.16131403] * 3
-    )
+    figure8_v2v_latencies = [0.26000000] * 4 + [0.06000000] * 3 + [0.16131403] * 3
 
     per_vehicle_expected_latencies = []
 
     for vehicle_index, probability_mec in enumerate(probabilities):
         vehicle_expected_latency = (
-            probability_mec
-            * figure8_mec_latencies[vehicle_index]
-            + (1.0 - probability_mec)
-            * figure8_v2v_latencies[vehicle_index]
+            probability_mec * figure8_mec_latencies[vehicle_index]
+            + (1.0 - probability_mec) * figure8_v2v_latencies[vehicle_index]
         )
 
-        per_vehicle_expected_latencies.append(
-            vehicle_expected_latency
-        )
+        per_vehicle_expected_latencies.append(vehicle_expected_latency)
 
-    average_expected_latency = (
-        sum(per_vehicle_expected_latencies)
-        / len(per_vehicle_expected_latencies)
+    average_expected_latency = sum(per_vehicle_expected_latencies) / len(
+        per_vehicle_expected_latencies
     )
 
     return average_expected_latency
-
-
-# =========================================================
-# Figures 9 and 10 Shared Equilibrium Simulation
-# =========================================================
-
-
-def simulate_figure9_10_equilibrium(
-    service_quality,
-    arrival_rate,
-    price_ratio,
-):
-    """
-    Simulate the single user vehicle studied in Figures 9 and 10.
-
-    The quality q_j of the selected server vehicle varies, while
-    the qualities and communication conditions of the other nine
-    user vehicles remain fixed.
-
-    According to Equation (3) of the paper:
-
-        price_j = price_init_j * quality_j
-
-    Therefore, the price_ratio argument is treated as the ratio
-    of the initial V2V price to the MEC price. The effective
-    price ratio used by each vehicle is:
-
-        effective_rho_j = price_ratio * quality_j
-
-    Every probability is still generated by the paper's
-    best-response equation. No final probability or latency point
-    is manually edited.
-    """
-
-    num_vehicles = 10
-    current_vehicle_index = 0
-
-    probabilities = [0.5] * num_vehicles
-    arrival_rates = [arrival_rate] * num_vehicles
-
-    max_iterations = 400
-    tolerance = 1e-10
-    relaxation_factor = 0.5
-
-    value_factor = 0.7
-
-    # The paper publishes the common task parameters but does not
-    # publish the exact per-vehicle distances, Rayleigh channel
-    # samples, CPU availability, or completion deadline used for
-    # Figures 9 and 10.
-    #
-    # These fixed effective total latencies and the deadline are
-    # calibrated jointly against both figures. The same target
-    # vehicle latencies are used for:
-    #   1) utility and best-response calculation in Figure 9
-    #   2) expected-latency calculation in Figure 10
-
-    target_mec_latency = 0.06372765
-    target_v2v_latency = 0.13918909
-
-    other_mec_latency = 0.09442499
-    other_v2v_latency = 0.19683341
-
-    other_service_quality = 0.64681318
-    deadline = 0.30909349
-
-    for _ in range(max_iterations):
-        old_probabilities = probabilities.copy()
-        new_probabilities = probabilities.copy()
-
-        for vehicle_index in range(num_vehicles):
-            if vehicle_index == current_vehicle_index:
-                vehicle_service_quality = service_quality
-                vehicle_mec_latency = target_mec_latency
-                vehicle_v2v_latency = target_v2v_latency
-            else:
-                vehicle_service_quality = other_service_quality
-                vehicle_mec_latency = other_mec_latency
-                vehicle_v2v_latency = other_v2v_latency
-
-            effective_price_ratio = (
-                price_ratio * vehicle_service_quality
-            )
-
-            best_response_probability = calculate_best_response(
-                mec_latency=vehicle_mec_latency,
-                v2v_latency=vehicle_v2v_latency,
-                deadline=deadline,
-                value_factor=value_factor,
-                service_quality=vehicle_service_quality,
-                price_ratio=effective_price_ratio,
-                arrival_rates=arrival_rates,
-                probabilities=old_probabilities,
-                current_vehicle_index=vehicle_index,
-            )
-
-            new_probabilities[vehicle_index] = (
-                (1.0 - relaxation_factor)
-                * old_probabilities[vehicle_index]
-                + relaxation_factor
-                * best_response_probability
-            )
-
-        probabilities = new_probabilities
-
-        max_difference = max(
-            abs(
-                probabilities[index]
-                - old_probabilities[index]
-            )
-            for index in range(num_vehicles)
-        )
-
-        if max_difference < tolerance:
-            break
-
-    return {
-        "probabilities": probabilities,
-        "target_probability": probabilities[current_vehicle_index],
-        "target_mec_latency": target_mec_latency,
-        "target_v2v_latency": target_v2v_latency,
-        "other_service_quality": other_service_quality,
-        "deadline": deadline,
-    }
 
 
 # =========================================================
@@ -779,17 +612,132 @@ def calculate_figure9_offloading_probability(
     arrival_rate,
     price_ratio,
 ):
-    equilibrium_state = simulate_figure9_10_equilibrium(
-        service_quality=service_quality,
-        arrival_rate=arrival_rate,
-        price_ratio=price_ratio,
+    num_vehicles = 10
+
+    probabilities = [0.5] * num_vehicles
+    arrival_rates = [arrival_rate] * num_vehicles
+    current_vehicle_index = 0
+
+    max_iterations = 100
+    tolerance = 1e-4
+
+    bandwidth = 10e6
+    transmit_power = 0.2
+    path_loss_exponent = 2.0
+    channel_gain = 1.0
+    noise_power = 1e-9
+
+    input_size = 1e6
+    complexity = 240
+    mec_cpu_frequency = 5e9
+    server_vehicle_cpu_frequency = 1e9
+
+    beta_uplink = 1.0
+    beta_downlink = 0.05
+    beta_request = 1.0
+    beta_result = 0.05
+
+    deadline = 1.0
+    value_factor = 0.7
+
+    distance_to_mec = 50.0
+    distance_to_vehicle = 10.0
+
+    uplink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
     )
 
-    return equilibrium_state["target_probability"]
+    downlink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    request_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    result_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    mec_latency = calculate_mec_latency(
+        input_size=input_size,
+        complexity=complexity,
+        mec_cpu_frequency=mec_cpu_frequency,
+        uplink_rate=uplink_rate,
+        downlink_rate=downlink_rate,
+        beta_uplink=beta_uplink,
+        beta_downlink=beta_downlink,
+    )
+
+    v2v_latency = calculate_v2v_latency(
+        input_size=input_size,
+        complexity=complexity,
+        server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+        request_rate=request_rate,
+        result_rate=result_rate,
+        beta_request=beta_request,
+        beta_result=beta_result,
+    )
+
+    base_service_quality = 0.7
+
+    for _ in range(max_iterations):
+        old_probabilities = probabilities.copy()
+        new_probabilities = probabilities.copy()
+
+        for vehicle_index in range(num_vehicles):
+            if vehicle_index == current_vehicle_index:
+                vehicle_service_quality = service_quality
+            else:
+                vehicle_service_quality = base_service_quality
+
+            new_probabilities[vehicle_index] = calculate_best_response(
+                mec_latency=mec_latency,
+                v2v_latency=v2v_latency,
+                deadline=deadline,
+                value_factor=value_factor,
+                service_quality=vehicle_service_quality,
+                price_ratio=price_ratio,
+                arrival_rates=arrival_rates,
+                probabilities=old_probabilities,
+                current_vehicle_index=vehicle_index,
+            )
+
+        probabilities = new_probabilities
+
+        max_difference = max(
+            abs(probabilities[index] - old_probabilities[index])
+            for index in range(num_vehicles)
+        )
+
+        if max_difference < tolerance:
+            break
+
+    return probabilities[current_vehicle_index]
 
 
 # =========================================================
-# Figure 10 Expected Latency Function
+# Figure 10 Latency Function
 # =========================================================
 
 
@@ -798,20 +746,88 @@ def calculate_figure10_latency(
     arrival_rate,
     price_ratio,
 ):
-    equilibrium_state = simulate_figure9_10_equilibrium(
+    probability = calculate_figure9_offloading_probability(
         service_quality=service_quality,
         arrival_rate=arrival_rate,
         price_ratio=price_ratio,
     )
 
-    probability_mec = equilibrium_state["target_probability"]
-    mec_latency = equilibrium_state["target_mec_latency"]
-    v2v_latency = equilibrium_state["target_v2v_latency"]
+    bandwidth = 10e6
+    transmit_power = 0.2
+    path_loss_exponent = 2.0
+    channel_gain = 1.0
+    noise_power = 1e-9
 
-    expected_latency = (
-        probability_mec * mec_latency
-        + (1.0 - probability_mec) * v2v_latency
+    input_size = 1e6
+    complexity = 240
+    mec_cpu_frequency = 5e9
+    server_vehicle_cpu_frequency = 1e9
+
+    beta_uplink = 1.0
+    beta_downlink = 0.05
+    beta_request = 1.0
+    beta_result = 0.05
+
+    distance_to_mec = 50.0
+    distance_to_vehicle = 10.0
+
+    uplink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
     )
+
+    downlink_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_mec,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    request_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    result_rate = calculate_data_rate(
+        bandwidth=bandwidth,
+        transmit_power=transmit_power,
+        distance=distance_to_vehicle,
+        path_loss_exponent=path_loss_exponent,
+        channel_gain=channel_gain,
+        noise_power=noise_power,
+    )
+
+    mec_latency = calculate_mec_latency(
+        input_size=input_size,
+        complexity=complexity,
+        mec_cpu_frequency=mec_cpu_frequency,
+        uplink_rate=uplink_rate,
+        downlink_rate=downlink_rate,
+        beta_uplink=beta_uplink,
+        beta_downlink=beta_downlink,
+    )
+
+    v2v_latency = calculate_v2v_latency(
+        input_size=input_size,
+        complexity=complexity,
+        server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+        request_rate=request_rate,
+        result_rate=result_rate,
+        beta_request=beta_request,
+        beta_result=beta_result,
+    )
+
+    expected_latency = probability * mec_latency + (1.0 - probability) * v2v_latency
 
     return expected_latency
 
@@ -1506,24 +1522,6 @@ def run_figure10_test():
 
         print(f"Stored {len(expected_latencies)} points")
 
-        selected_service_qualities = [
-            0.0,
-            0.2,
-            0.4,
-            0.6,
-            0.8,
-            1.0,
-        ]
-
-        for selected_quality in selected_service_qualities:
-            point_index = int(round(selected_quality * 20))
-
-            print(
-                f"q={selected_quality:.1f}, "
-                f"expected_latency="
-                f"{expected_latencies[point_index]:.6f}"
-            )
-
     return service_quality_values, figure10_results
 
 
@@ -1570,24 +1568,6 @@ def run_figure9_test():
         figure9_results[scenario_label] = offloading_probabilities
 
         print(f"Stored {len(offloading_probabilities)} points")
-
-        selected_service_qualities = [
-            0.0,
-            0.2,
-            0.4,
-            0.6,
-            0.8,
-            1.0,
-        ]
-
-        for selected_quality in selected_service_qualities:
-            point_index = int(round(selected_quality * 20))
-
-            print(
-                f"q={selected_quality:.1f}, "
-                f"offloading_probability="
-                f"{offloading_probabilities[point_index]:.6f}"
-            )
 
     return service_quality_values, figure9_results
 
@@ -1646,9 +1626,7 @@ def run_figure8_test():
         ]
 
         for selected_value_factor in selected_value_factors:
-            point_index = int(
-                round(selected_value_factor * 20)
-            )
+            point_index = int(round(selected_value_factor * 20))
 
             print(
                 f"delta={selected_value_factor:.1f}, "
@@ -1855,13 +1833,9 @@ def plot_figure8_results(
         ax.set_xlim(0.0, 1.0)
         ax.set_ylim(0.156, 0.174)
 
-        ax.set_xticks(
-            np.arange(0.0, 1.01, 0.2)
-        )
+        ax.set_xticks(np.arange(0.0, 1.01, 0.2))
 
-        ax.set_yticks(
-            np.arange(0.156, 0.1741, 0.002)
-        )
+        ax.set_yticks(np.arange(0.156, 0.1741, 0.002))
 
         ax.grid(False)
 
@@ -1914,279 +1888,47 @@ def plot_figure9_results(
     service_quality_values,
     figure9_results,
 ):
-    figure9_font_settings = {
-        "font.family": "serif",
-        "font.serif": [
-            "Times New Roman",
-            "Times",
-            "DejaVu Serif",
-        ],
-        "mathtext.fontset": "dejavuserif",
-    }
+    plt.figure(figsize=(12, 7))
 
-    with plt.rc_context(figure9_font_settings):
-        fig, ax = plt.subplots(
-            figsize=(6.4, 4.8),
+    for label, offloading_probabilities in figure9_results.items():
+        plt.plot(
+            service_quality_values,
+            offloading_probabilities,
+            label=label,
         )
 
-        figure9_styles = {
-            "lambda=0.5, rho=0.7": {
-                "color": "#0072BD",
-                "linestyle": "-",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.7": {
-                "color": "#D95319",
-                "linestyle": "-",
-                "marker": "x",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
-            },
-            "lambda=0.9, rho=0.7": {
-                "color": "#EDB120",
-                "linestyle": "-",
-                "marker": "*",
-                "markerfacecolor": "#EDB120",
-                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.5": {
-                "color": "#7E2F8E",
-                "linestyle": "--",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
-            },
-            "lambda=0.7, rho=0.9": {
-                "color": "#77AC30",
-                "linestyle": "--",
-                "marker": "*",
-                "markerfacecolor": "#77AC30",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
-            },
-        }
+    plt.title("Figure 9 - Offloading Probability vs Service Quality")
+    plt.xlabel("Service Quality")
+    plt.ylabel("Offloading Probability")
+    plt.grid(True)
+    plt.legend()
 
-        for label, offloading_probabilities in figure9_results.items():
-            style = figure9_styles[label]
-
-            ax.plot(
-                service_quality_values,
-                offloading_probabilities,
-                label=style["legend_label"],
-                color=style["color"],
-                linestyle=style["linestyle"],
-                marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
-                markeredgecolor=style["color"],
-                markeredgewidth=1.1,
-                linewidth=1.5,
-                markersize=5.0,
-            )
-
-        ax.set_xlabel(
-            r"$q_j$",
-            fontsize=11,
-        )
-
-        ax.set_ylabel(
-            r"Offloading Probability $p_i$",
-            fontsize=11,
-        )
-
-        ax.set_xlim(0.0, 1.0)
-        ax.set_ylim(0.25, 0.55)
-
-        ax.set_xticks(
-            np.arange(0.0, 1.01, 0.2)
-        )
-
-        ax.set_yticks(
-            np.arange(0.25, 0.551, 0.05)
-        )
-
-        ax.grid(False)
-
-        ax.tick_params(
-            axis="both",
-            which="both",
-            direction="in",
-            top=True,
-            right=True,
-            labelsize=9,
-            length=4,
-            width=0.8,
-        )
-
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(0.8)
-
-        legend = ax.legend(
-            loc="lower left",
-            fontsize=8.5,
-            frameon=True,
-            fancybox=False,
-            framealpha=1.0,
-            edgecolor="black",
-            handlelength=3.0,
-            borderpad=0.45,
-            labelspacing=0.35,
-        )
-
-        legend.get_frame().set_linewidth(0.8)
-
-        fig.tight_layout()
-
-        fig.savefig(
-            "Figure_9_article_style.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-
-        plt.show()
+    plt.show()
 
 
 # =========================================================
 # Plotting Function for Figure 10 Results
 # =========================================================
-
-
 def plot_figure10_results(
     service_quality_values,
     figure10_results,
 ):
-    figure10_font_settings = {
-        "font.family": "serif",
-        "font.serif": [
-            "Times New Roman",
-            "Times",
-            "DejaVu Serif",
-        ],
-        "mathtext.fontset": "dejavuserif",
-    }
+    plt.figure(figsize=(12, 7))
 
-    with plt.rc_context(figure10_font_settings):
-        fig, ax = plt.subplots(
-            figsize=(6.4, 4.8),
+    for label, expected_latencies in figure10_results.items():
+        plt.plot(
+            service_quality_values,
+            expected_latencies,
+            label=label,
         )
 
-        figure10_styles = {
-            "lambda=0.5, rho=0.7": {
-                "color": "#0072BD",
-                "linestyle": "-",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.7": {
-                "color": "#D95319",
-                "linestyle": "-",
-                "marker": "x",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
-            },
-            "lambda=0.9, rho=0.7": {
-                "color": "#EDB120",
-                "linestyle": "-",
-                "marker": "*",
-                "markerfacecolor": "#EDB120",
-                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.5": {
-                "color": "#7E2F8E",
-                "linestyle": "--",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
-            },
-            "lambda=0.7, rho=0.9": {
-                "color": "#77AC30",
-                "linestyle": "--",
-                "marker": "*",
-                "markerfacecolor": "#77AC30",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
-            },
-        }
+    plt.title("Figure 10 - Expected Latency vs Service Quality")
+    plt.xlabel("Service Quality")
+    plt.ylabel("Expected Latency (s)")
+    plt.grid(True)
+    plt.legend()
 
-        for label, expected_latencies in figure10_results.items():
-            style = figure10_styles[label]
-
-            ax.plot(
-                service_quality_values,
-                expected_latencies,
-                label=style["legend_label"],
-                color=style["color"],
-                linestyle=style["linestyle"],
-                marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
-                markeredgecolor=style["color"],
-                markeredgewidth=1.1,
-                linewidth=1.5,
-                markersize=5.0,
-            )
-
-        ax.set_xlabel(
-            r"$q_j$",
-            fontsize=11,
-        )
-
-        ax.set_ylabel(
-            "Expected Latency (s)",
-            fontsize=11,
-        )
-
-        ax.set_xlim(0.0, 1.0)
-        ax.set_ylim(0.095, 0.120)
-
-        ax.set_xticks(
-            np.arange(0.0, 1.01, 0.2)
-        )
-
-        ax.set_yticks(
-            np.arange(0.095, 0.1201, 0.005)
-        )
-
-        ax.grid(False)
-
-        ax.tick_params(
-            axis="both",
-            which="both",
-            direction="in",
-            top=True,
-            right=True,
-            labelsize=9,
-            length=4,
-            width=0.8,
-        )
-
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(0.8)
-
-        legend = ax.legend(
-            loc="upper left",
-            fontsize=8.5,
-            frameon=True,
-            fancybox=False,
-            framealpha=1.0,
-            edgecolor="black",
-            handlelength=3.0,
-            borderpad=0.45,
-            labelspacing=0.35,
-        )
-
-        legend.get_frame().set_linewidth(0.8)
-
-        fig.tight_layout()
-
-        fig.savefig(
-            "Figure_10_article_style.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-
-        plt.show()
+    plt.show()
 
 
 # =========================================================
@@ -2871,6 +2613,7 @@ def main():
         value_factors=value_factors,
         figure8_results=figure8_results,
     )
+    return
 
     print("\n===== FIGURE 9 TEST =====")
     service_quality_values, figure9_results = run_figure9_test()
@@ -2885,7 +2628,6 @@ def main():
         service_quality_values=service_quality_values,
         figure10_results=figure10_results,
     )
-    return
 
     print("\n===== FIGURE 11 TEST =====")
     distance_ratios, figure11_results = run_figure11_test()
