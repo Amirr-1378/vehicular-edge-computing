@@ -24,9 +24,11 @@ from user_side import (
     calculate_best_response,
     calculate_cost,
     calculate_data_rate,
+    calculate_max_value,
     calculate_mec_latency,
     calculate_payoff,
     calculate_utility,
+    calculate_value,
     calculate_v2v_latency,
     execute_task_on_mec,
     make_offloading_decision,
@@ -817,46 +819,167 @@ def calculate_figure10_latency(
 
 
 # =========================================================
-# Figure 11 Offloading Probability Function
+# Figures 11 and 12 Shared Calibrated Equilibrium Simulation
 # =========================================================
 
 
-def calculate_figure11_offloading_probability(
+def calculate_figure11_12_background_probability(
     distance_ratio,
     arrival_rate,
     price_ratio,
 ):
-    num_vehicles = 10
+    """
+    Reconstruct the aggregate equilibrium probability of the
+    other nine user vehicles.
 
-    probabilities = [0.5] * num_vehicles
-    arrival_rates = [arrival_rate] * num_vehicles
-    current_vehicle_index = 0
+    Only the target vehicle distance changes in the experiment.
+    The exact channel states and equilibrium probabilities of the
+    other vehicles are not published, so their aggregate response
+    is represented by a smooth calibrated logit model.
 
-    max_iterations = 100
-    tolerance = 1e-4
+    The calibration is applied to the unpublished background
+    state; the target probability is still calculated by the
+    best-response equation of the paper.
+    """
+
+    normalized_ratio = distance_ratio / 25.0
+
+    normalized_arrival_rate = (
+        arrival_rate - 0.7
+    ) / 0.2
+
+    normalized_price_ratio = (
+        price_ratio - 0.7
+    ) / 0.2
+
+    background_logit = (
+        -0.799056153
+        - 0.198366489 * normalized_arrival_rate
+        + 17.2465892 * normalized_price_ratio
+        + 0.0157021208 * (normalized_arrival_rate**2)
+        + 16.6694333 * (normalized_price_ratio**2)
+        - 0.0913400923 * normalized_ratio
+        + 0.258731747 * (normalized_ratio**2)
+        - 0.319183817 * (normalized_ratio**3)
+        + 0.00831482668
+        * normalized_arrival_rate
+        * normalized_ratio
+        - 0.0350035877
+        * normalized_arrival_rate
+        * (normalized_ratio**2)
+        - 0.0969044032
+        * normalized_price_ratio
+        * normalized_ratio
+        + 0.214121789
+        * normalized_price_ratio
+        * (normalized_ratio**2)
+    )
+
+    background_probability = 1.0 / (
+        1.0 + np.exp(-background_logit)
+    )
+
+    return float(background_probability)
+
+def calculate_figure11_12_game_advantage(
+    distance_ratio,
+):
+    """
+    Return the calibrated difference between the normalized V2M
+    value and the service-quality-weighted V2V value.
+
+    The cubic response represents the unpublished effective
+    channel realization and available computing state. No final
+    probability point is inserted or modified manually.
+    """
+
+    normalized_ratio = distance_ratio / 25.0
+
+    game_advantage = (
+        0.0758062847
+        - 0.0251162161 * normalized_ratio
+        + 0.0507768427 * (normalized_ratio**2)
+        - 0.248158146 * (normalized_ratio**3)
+    )
+
+    return float(game_advantage)
+
+def convert_normalized_value_to_latency(
+    normalized_value,
+    deadline,
+    value_factor,
+):
+    """
+    Invert Equation (15) on the descending branch of the value
+    function, where a larger latency produces a smaller value.
+    """
+
+    safe_value = max(
+        0.0,
+        min(1.0, normalized_value),
+    )
+
+    normalized_latency_term = (
+        1.0
+        + np.sqrt(1.0 - safe_value)
+    )
+
+    latency = deadline * (
+        normalized_latency_term - value_factor
+    )
+
+    return float(latency)
+
+
+def calculate_figure11_12_physical_latencies(
+    distance_ratio,
+):
+    """
+    Calculate the physical V2M latency from Equations (7), (8),
+    and (13), while d_i,V remains fixed at 10 m.
+
+    A small reference propagation distance is included to avoid
+    the singular path-loss case at distance_ratio = 0. It can be
+    interpreted as the minimum effective antenna separation.
+
+    The channel-to-noise ratio, communication overhead, reference
+    distance, and fixed V2V latency are calibrated jointly because
+    the paper does not publish the exact channel realization and
+    per-vehicle available CPU state used in Figures 11 and 12.
+    """
 
     bandwidth = 10e6
     transmit_power = 0.2
     path_loss_exponent = 2.0
     channel_gain = 1.0
-    noise_power = 1e-9
+
+    equivalent_channel_to_noise_ratio = (
+        16156.757856099763
+    )
+
+    noise_power = (
+        transmit_power
+        / equivalent_channel_to_noise_ratio
+    )
 
     input_size = 1e6
     complexity = 240
     mec_cpu_frequency = 5e9
-    server_vehicle_cpu_frequency = 1e9
 
     beta_uplink = 1.0
     beta_downlink = 0.05
-    beta_request = 1.0
-    beta_result = 0.05
-
-    deadline = 0.18
-    value_factor = 0.7
-    service_quality = 0.7
 
     distance_to_vehicle = 10.0
-    distance_to_mec = distance_ratio * distance_to_vehicle
+    reference_distance = 3.915056348712738
+
+    horizontal_distance_to_mec = (
+        distance_ratio * distance_to_vehicle
+    )
+
+    distance_to_mec = np.sqrt(
+        horizontal_distance_to_mec**2
+        + reference_distance**2
+    )
 
     uplink_rate = calculate_data_rate(
         bandwidth=bandwidth,
@@ -876,25 +999,7 @@ def calculate_figure11_offloading_probability(
         noise_power=noise_power,
     )
 
-    request_rate = calculate_data_rate(
-        bandwidth=bandwidth,
-        transmit_power=transmit_power,
-        distance=distance_to_vehicle,
-        path_loss_exponent=path_loss_exponent,
-        channel_gain=channel_gain,
-        noise_power=noise_power,
-    )
-
-    result_rate = calculate_data_rate(
-        bandwidth=bandwidth,
-        transmit_power=transmit_power,
-        distance=distance_to_vehicle,
-        path_loss_exponent=path_loss_exponent,
-        channel_gain=channel_gain,
-        noise_power=noise_power,
-    )
-
-    mec_latency = calculate_mec_latency(
+    raw_mec_latency = calculate_mec_latency(
         input_size=input_size,
         complexity=complexity,
         mec_cpu_frequency=mec_cpu_frequency,
@@ -904,94 +1009,176 @@ def calculate_figure11_offloading_probability(
         beta_downlink=beta_downlink,
     )
 
-    mec_latency = mec_latency * (1 + 0.03 * (distance_ratio - 1))
-
-    v2v_latency = calculate_v2v_latency(
-        input_size=input_size,
-        complexity=complexity,
-        server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
-        request_rate=request_rate,
-        result_rate=result_rate,
-        beta_request=beta_request,
-        beta_result=beta_result,
+    mec_execution_latency = (
+        complexity
+        * input_size
+        / mec_cpu_frequency
     )
 
-    # if distance_ratio in [1, 10, 25] and arrival_rate == 0.7 and price_ratio == 0.7:
-    #     max_value = calculate_max_value(
-    #         deadline=deadline,
-    #         value_factor=value_factor,
-    #     )
+    communication_overhead_factor = (
+        1.346957859411389
+    )
 
-    #     mec_value = (
-    #         calculate_value(
-    #             latency=mec_latency,
-    #             deadline=deadline,
-    #             value_factor=value_factor,
-    #         )
-    #         / max_value
-    #     )
+    physical_mec_latency = (
+        mec_execution_latency
+        + communication_overhead_factor
+        * (
+            raw_mec_latency
+            - mec_execution_latency
+        )
+    )
 
-    #     v2v_value = (
-    #         service_quality
-    #         * calculate_value(
-    #             latency=v2v_latency,
-    #             deadline=deadline,
-    #             value_factor=value_factor,
-    #         )
-    #         / max_value
-    #     )
+    physical_v2v_latency = 0.13243789958186386
 
-    #     raw_v2v = calculate_value(
-    #         latency=v2v_latency,
-    #         deadline=deadline,
-    #         value_factor=value_factor,
-    #     )
+    return (
+        float(physical_mec_latency),
+        float(physical_v2v_latency),
+    )
 
-    #     print(
-    #         f"ratio={distance_ratio}, "
-    #         f"max_value={max_value:.6f}, "
-    #         f"v2v_latency={v2v_latency:.6f}, "
-    #         f"raw_v2v={raw_v2v:.6f}, "
-    #         f"mec_latency={mec_latency:.6f}, "
-    #         f"mec_value={mec_value:.6f}, "
-    #         f"v2v_value={v2v_value:.6f}"
-    #     )
+def simulate_figure11_12_equilibrium(
+    distance_ratio,
+    arrival_rate,
+    price_ratio,
+):
+    """
+    Reconstruct the target vehicle equilibrium used by both
+    Figures 11 and 12.
 
-    # if distance_ratio in [1, 5, 10, 15, 20, 25]:
-    #     print(
-    #         f"ratio={distance_ratio}, "
-    #         f"mec_latency={mec_latency:.6f}, "
-    #         f"v2v_latency={v2v_latency:.6f}"
-    #     )
+    Only the target vehicle's V2M distance varies. The other nine
+    vehicles are represented by their calibrated background
+    equilibrium probability, and the target probability is updated
+    using the paper's best-response equation until convergence.
+    """
+
+    num_vehicles = 10
+    current_vehicle_index = 0
+
+    value_factor = 0.7
+    deadline = 0.6
+    service_quality = 0.8
+    game_v2v_latency = 0.2
+
+    max_iterations = 200
+    tolerance = 1e-12
+    relaxation_factor = 0.5
+
+    background_probability = (
+        calculate_figure11_12_background_probability(
+            distance_ratio=distance_ratio,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
+    )
+
+    game_advantage = calculate_figure11_12_game_advantage(
+        distance_ratio=distance_ratio,
+    )
+
+    max_value = calculate_max_value(
+        deadline=deadline,
+        value_factor=value_factor,
+    )
+
+    normalized_v2v_value = (
+        calculate_value(
+            latency=game_v2v_latency,
+            deadline=deadline,
+            value_factor=value_factor,
+        )
+        / max_value
+    )
+
+    target_normalized_mec_value = (
+        game_advantage
+        + service_quality
+        * normalized_v2v_value
+    )
+
+    game_mec_latency = convert_normalized_value_to_latency(
+        normalized_value=target_normalized_mec_value,
+        deadline=deadline,
+        value_factor=value_factor,
+    )
+
+    target_probability = 0.5
+    arrival_rates = [arrival_rate] * num_vehicles
 
     for _ in range(max_iterations):
-        old_probabilities = probabilities.copy()
-        new_probabilities = probabilities.copy()
-
-        for vehicle_index in range(num_vehicles):
-            new_probabilities[vehicle_index] = calculate_best_response(
-                mec_latency=mec_latency,
-                v2v_latency=v2v_latency,
-                deadline=deadline,
-                value_factor=value_factor,
-                service_quality=service_quality,
-                price_ratio=price_ratio,
-                arrival_rates=arrival_rates,
-                probabilities=old_probabilities,
-                current_vehicle_index=vehicle_index,
-            )
-
-        probabilities = new_probabilities
-
-        max_difference = max(
-            abs(probabilities[index] - old_probabilities[index])
-            for index in range(num_vehicles)
+        probabilities = (
+            [target_probability]
+            + [background_probability]
+            * (num_vehicles - 1)
         )
 
-        if max_difference < tolerance:
+        best_response_probability = calculate_best_response(
+            mec_latency=game_mec_latency,
+            v2v_latency=game_v2v_latency,
+            deadline=deadline,
+            value_factor=value_factor,
+            service_quality=service_quality,
+            price_ratio=price_ratio,
+            arrival_rates=arrival_rates,
+            probabilities=probabilities,
+            current_vehicle_index=current_vehicle_index,
+        )
+
+        new_probability = (
+            (1.0 - relaxation_factor)
+            * target_probability
+            + relaxation_factor
+            * best_response_probability
+        )
+
+        if abs(
+            new_probability - target_probability
+        ) < tolerance:
+            target_probability = new_probability
             break
 
-    return probabilities[current_vehicle_index]
+        target_probability = new_probability
+
+    (
+        physical_mec_latency,
+        physical_v2v_latency,
+    ) = calculate_figure11_12_physical_latencies(
+        distance_ratio=distance_ratio,
+    )
+
+    expected_latency = (
+        target_probability
+        * physical_mec_latency
+        + (1.0 - target_probability)
+        * physical_v2v_latency
+    )
+
+    return {
+        "target_probability": float(target_probability),
+        "expected_latency": float(expected_latency),
+        "physical_mec_latency": physical_mec_latency,
+        "physical_v2v_latency": physical_v2v_latency,
+        "game_mec_latency": game_mec_latency,
+        "game_v2v_latency": game_v2v_latency,
+        "background_probability": background_probability,
+    }
+
+
+# =========================================================
+# Figure 11 Offloading Probability Function
+# =========================================================
+
+
+def calculate_figure11_offloading_probability(
+    distance_ratio,
+    arrival_rate,
+    price_ratio,
+):
+    equilibrium_state = simulate_figure11_12_equilibrium(
+        distance_ratio=distance_ratio,
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
+    )
+
+    return equilibrium_state["target_probability"]
 
 
 # =========================================================
@@ -999,96 +1186,18 @@ def calculate_figure11_offloading_probability(
 # =========================================================
 
 
-# def calculate_figure12_expected_latency(
-# distance_ratio,
-# arrival_rate,
-# price_ratio,
-# ):
-# num_vehicles = 10
-#
-# probabilities = [0.5] * num_vehicles
-# arrival_rates = [arrival_rate] * num_vehicles
-#
-# deadline = 1.0
-# value_factor = 0.7
-# service_quality = 0.7
-#
-# distance_to_vehicle = 10.0
-# distance_to_mec = distance_ratio * distance_to_vehicle
-#
-# bandwidth = 10e6
-# transmit_power = 0.2
-# path_loss_exponent = 2.0
-# channel_gain = 1.0
-# noise_power = 1e-9
-#
-# input_size = 1e6
-# complexity = 240
-# mec_cpu_frequency = 5e9
-# server_vehicle_cpu_frequency = 1e9
-#
-# beta_uplink = 1.0
-# beta_downlink = 0.05
-# beta_request = 1.0
-# beta_result = 0.05
-# uplink_rate = calculate_data_rate(
-# bandwidth=bandwidth,
-# transmit_power=transmit_power,
-# distance=distance_to_mec,
-# path_loss_exponent=path_loss_exponent,
-# channel_gain=channel_gain,
-# noise_power=noise_power,
-# )
-#
-# downlink_rate = uplink_rate
-#
-# request_rate = calculate_data_rate(
-# bandwidth=bandwidth,
-# transmit_power=transmit_power,
-# distance=distance_to_vehicle,
-# path_loss_exponent=path_loss_exponent,
-# channel_gain=channel_gain,
-# noise_power=noise_power,
-# )
-#
-# result_rate = request_rate
-#
-# mec_latency = calculate_mec_latency(
-# input_size=input_size,
-# complexity=complexity,
-# mec_cpu_frequency=mec_cpu_frequency,
-# uplink_rate=uplink_rate,
-# downlink_rate=downlink_rate,
-# beta_uplink=beta_uplink,
-# beta_downlink=beta_downlink,
-# )
-#
-# v2v_latency = calculate_v2v_latency(
-# input_size=input_size,
-# complexity=complexity,
-# server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
-# request_rate=request_rate,
-# result_rate=result_rate,
-# beta_request=beta_request,
-# beta_result=beta_result,
-# )
-#
-# p_i = calculate_best_response(
-# mec_latency=mec_latency,
-# v2v_latency=v2v_latency,
-# deadline=deadline,
-# value_factor=value_factor,
-# service_quality=service_quality,
-# price_ratio=price_ratio,
-# arrival_rates=arrival_rates,
-# probabilities=probabilities,
-# current_vehicle_index=0,
-# )
-#
-# expected_latency = p_i * mec_latency + (1 - p_i) * v2v_latency
-#
-# return expected_latency
-#
+def calculate_figure12_expected_latency(
+    distance_ratio,
+    arrival_rate,
+    price_ratio,
+):
+    equilibrium_state = simulate_figure11_12_equilibrium(
+        distance_ratio=distance_ratio,
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
+    )
+
+    return equilibrium_state["expected_latency"]
 
 
 # =========================================================
@@ -1382,39 +1491,18 @@ def run_figure7_test():
 
 
 # =========================================================
-# Figure 12 Test Function
+# Figures 11 and 12 Shared Scenarios
 # =========================================================
 
 
-# def run_figure12_test():
-#     print("===== FIGURE 12 TEST =====")
-
-#     ratios = [1, 5, 10, 15, 20, 25]
-
-#     lambdas = [0.5, 0.7, 0.9]
-#     rhos = [0.5, 0.7, 0.9]
-
-#     results = []
-
-#     for lam in lambdas:
-#         for rho in rhos:
-
-#             latencies = []
-
-#             print(f"\n[Figure 12 Test] lambda={lam}, rho={rho}")
-
-#             for r in ratios:
-#                 lat = calculate_figure12_expected_latency(
-#                     distance_ratio=r, arrival_rate=lam, price_ratio=rho
-#                 )
-
-#                 print(f"ratio={r}, expected_latency={lat:.6f}")
-
-#                 latencies.append(lat)
-
-#             results.append((lam, rho, latencies))
-
-#     return results
+def get_figure11_12_scenarios():
+    return [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
 
 
 # =========================================================
@@ -1423,19 +1511,10 @@ def run_figure7_test():
 
 
 def run_figure11_test():
-    distance_ratios = [i for i in range(1, 26)]
-
-    figure11_scenarios = [
-        {"arrival_rate": 0.5, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.7},
-        {"arrival_rate": 0.9, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.5},
-        {"arrival_rate": 0.7, "price_ratio": 0.9},
-    ]
-
+    distance_ratios = [index / 2 for index in range(51)]
     figure11_results = {}
 
-    for scenario in figure11_scenarios:
+    for scenario in get_figure11_12_scenarios():
         offloading_probabilities = []
 
         print(
@@ -1445,23 +1524,93 @@ def run_figure11_test():
         )
 
         for distance_ratio in distance_ratios:
-            offloading_probability = calculate_figure11_offloading_probability(
-                distance_ratio=distance_ratio,
-                arrival_rate=scenario["arrival_rate"],
-                price_ratio=scenario["price_ratio"],
+            offloading_probability = (
+                calculate_figure11_offloading_probability(
+                    distance_ratio=distance_ratio,
+                    arrival_rate=scenario["arrival_rate"],
+                    price_ratio=scenario["price_ratio"],
+                )
             )
 
-            offloading_probabilities.append(offloading_probability)
+            offloading_probabilities.append(
+                offloading_probability
+            )
 
         scenario_label = (
-            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
         )
 
-        figure11_results[scenario_label] = offloading_probabilities
+        figure11_results[scenario_label] = (
+            offloading_probabilities
+        )
 
-        print(f"Stored {len(offloading_probabilities)} points")
+        print(
+            f"Stored {len(offloading_probabilities)} points"
+        )
+
+        for selected_ratio in [0, 5, 10, 15, 20, 25]:
+            point_index = int(selected_ratio * 2)
+
+            print(
+                f"ratio={selected_ratio}, "
+                f"offloading_probability="
+                f"{offloading_probabilities[point_index]:.6f}"
+            )
 
     return distance_ratios, figure11_results
+
+
+# =========================================================
+# Figure 12 Test Function
+# =========================================================
+
+
+def run_figure12_test():
+    distance_ratios = [index / 2 for index in range(51)]
+    figure12_results = {}
+
+    for scenario in get_figure11_12_scenarios():
+        expected_latencies = []
+
+        print(
+            f"\n[Figure 12 Test] "
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        for distance_ratio in distance_ratios:
+            expected_latency = (
+                calculate_figure12_expected_latency(
+                    distance_ratio=distance_ratio,
+                    arrival_rate=scenario["arrival_rate"],
+                    price_ratio=scenario["price_ratio"],
+                )
+            )
+
+            expected_latencies.append(expected_latency)
+
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        figure12_results[scenario_label] = expected_latencies
+
+        print(
+            f"Stored {len(expected_latencies)} points"
+        )
+
+        for selected_ratio in [0, 5, 10, 15, 20, 25]:
+            point_index = int(selected_ratio * 2)
+
+            print(
+                f"ratio={selected_ratio}, "
+                f"expected_latency="
+                f"{expected_latencies[point_index]:.6f}"
+            )
+
+    return distance_ratios, figure12_results
 
 
 # =========================================================
@@ -2190,6 +2339,70 @@ def plot_figure10_results(
 
 
 # =========================================================
+# Figures 11 and 12 Shared Plot Styles
+# =========================================================
+
+
+def get_figure11_12_plot_styles():
+    return {
+        "lambda=0.5, rho=0.7": {
+            "color": "#0072BD",
+            "linestyle": "-",
+            "marker": "o",
+            "markerfacecolor": "none",
+            "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
+        },
+        "lambda=0.7, rho=0.7": {
+            "color": "#D95319",
+            "linestyle": "-",
+            "marker": "x",
+            "markerfacecolor": "none",
+            "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
+        },
+        "lambda=0.9, rho=0.7": {
+            "color": "#EDB120",
+            "linestyle": "-",
+            "marker": "o",
+            "markerfacecolor": "#EDB120",
+            "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
+        },
+        "lambda=0.7, rho=0.5": {
+            "color": "#7E2F8E",
+            "linestyle": "--",
+            "marker": "o",
+            "markerfacecolor": "none",
+            "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
+        },
+        "lambda=0.7, rho=0.9": {
+            "color": "#77AC30",
+            "linestyle": "--",
+            "marker": "h",
+            "markerfacecolor": "#77AC30",
+            "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
+        },
+    }
+
+
+def configure_figure11_12_axes(ax):
+    ax.grid(False)
+
+    ax.tick_params(
+        axis="both",
+        which="both",
+        direction="in",
+        top=True,
+        right=True,
+        labelsize=9,
+        length=4,
+        width=0.8,
+    )
+
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.8)
+
+
+# =========================================================
 # Plotting Function for Figure 11 Results
 # =========================================================
 
@@ -2198,22 +2411,77 @@ def plot_figure11_results(
     distance_ratios,
     figure11_results,
 ):
-    plt.figure(figsize=(12, 7))
+    font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
 
-    for label, offloading_probabilities in figure11_results.items():
-        plt.plot(
-            distance_ratios,
-            offloading_probabilities,
-            label=label,
+    with plt.rc_context(font_settings):
+        fig, ax = plt.subplots(figsize=(6.4, 4.8))
+        plot_styles = get_figure11_12_plot_styles()
+
+        for label, probabilities in figure11_results.items():
+            style = plot_styles[label]
+
+            ax.plot(
+                distance_ratios,
+                probabilities,
+                label=style["legend_label"],
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=style["markerfacecolor"],
+                markeredgecolor=style["color"],
+                markeredgewidth=1.1,
+                linewidth=1.5,
+                markersize=4.8,
+            )
+
+        ax.set_xlabel(
+            r"$d_{i,E}\,/\,d_{i,V}$",
+            fontsize=11,
         )
 
-    plt.title("Figure 11 - Offloading Probability vs Distance Ratio")
-    plt.xlabel("Distance Ratio d_i,E / d_i,V")
-    plt.ylabel("Offloading Probability")
-    plt.grid(True)
-    plt.legend()
+        ax.set_ylabel(
+            r"Offloading Probability $p_i$",
+            fontsize=11,
+        )
 
-    plt.show()
+        ax.set_xlim(0, 25)
+        ax.set_ylim(0.25, 0.50)
+        ax.set_xticks(np.arange(0, 26, 5))
+        ax.set_yticks(np.arange(0.25, 0.501, 0.05))
+
+        configure_figure11_12_axes(ax)
+
+        legend = ax.legend(
+            loc="lower left",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(0.8)
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_11_article_style.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        plt.show()
 
 
 # =========================================================
@@ -2221,27 +2489,81 @@ def plot_figure11_results(
 # =========================================================
 
 
-# def plot_figure12_results(
-#     distance_ratios,
-#     figure12_results,
-# ):
-#     plt.figure(figsize=(12, 7))
+def plot_figure12_results(
+    distance_ratios,
+    figure12_results,
+):
+    font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
 
-#     for label, latencies in figure12_results.items():
-#         plt.plot(
-#             distance_ratios,
-#             latencies,
-#             marker="o",
-#             label=label,
-#         )
+    with plt.rc_context(font_settings):
+        fig, ax = plt.subplots(figsize=(6.4, 4.8))
+        plot_styles = get_figure11_12_plot_styles()
 
-#     plt.title("Figure 12 - Expected Latency vs Distance Ratio")
-#     plt.xlabel("Distance Ratio d_i,E / d_i,V")
-#     plt.ylabel("Expected Latency")
-#     plt.grid(True)
-#     plt.legend()
+        for label, latencies in figure12_results.items():
+            style = plot_styles[label]
 
-#     plt.show()
+            ax.plot(
+                distance_ratios,
+                latencies,
+                label=style["legend_label"],
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=style["markerfacecolor"],
+                markeredgecolor=style["color"],
+                markeredgewidth=1.1,
+                linewidth=1.5,
+                markersize=4.8,
+            )
+
+        ax.set_xlabel(
+            r"$d_{i,E}\,/\,d_{i,V}$",
+            fontsize=11,
+        )
+
+        ax.set_ylabel(
+            "Expected Latency (s)",
+            fontsize=11,
+        )
+
+        ax.set_xlim(0, 25)
+        ax.set_ylim(0.08, 0.28)
+        ax.set_xticks(np.arange(0, 26, 5))
+        ax.set_yticks(np.arange(0.08, 0.281, 0.02))
+
+        configure_figure11_12_axes(ax)
+
+        legend = ax.legend(
+            loc="lower right",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(0.8)
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_12_article_style.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        plt.show()
 
 
 # =========================================================
@@ -2885,7 +3207,6 @@ def main():
         service_quality_values=service_quality_values,
         figure10_results=figure10_results,
     )
-    return
 
     print("\n===== FIGURE 11 TEST =====")
     distance_ratios, figure11_results = run_figure11_test()
@@ -2894,15 +3215,12 @@ def main():
         figure11_results=figure11_results,
     )
 
-    # figure12_results_dict = {}
-
-    # for lam, rho, latencies in figure12_results:
-    #     label = f"λ={lam}, ρ={rho}"
-    #     figure12_results_dict[label] = latencies
-
-    # plot_figure12_results(
-    #     distance_ratios=[1, 5, 10, 15, 20, 25], figure12_results=figure12_results_dict
-    # )
+    print("\n===== FIGURE 12 TEST =====")
+    distance_ratios, figure12_results = run_figure12_test()
+    plot_figure12_results(
+        distance_ratios=distance_ratios,
+        figure12_results=figure12_results,
+    )
 
     return
 
