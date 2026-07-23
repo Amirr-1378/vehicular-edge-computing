@@ -54,167 +54,275 @@ FAULTY_MEC_IDS = {3}
 
 
 # =========================================================
-# Figure 5 convergence test
+# Figure 5 Convergence Experiment
 # =========================================================
 
-# Figure 5 scenario reconstruction:
-# The paper gives the common parameters in Table I
-# but does not provide per-vehicle distances, channel gains,
-# or initial probabilities. These lists are used to reproduce
-# the qualitative convergence behavior shown in Fig. 5.
+# Figure 5 is different from Figures 6-14:
+# its horizontal axis is the best-response iteration itself.
+#
+# The paper publishes the common parameters in Table I and states
+# that Figure 5 contains six user vehicles, but it does not publish
+# the initial strategy, distance, channel realization, or service
+# quality of each individual vehicle.
+#
+# The scenario below calibrates only those unpublished per-vehicle
+# inputs. Every later probability is produced by the best-response
+# equation of the paper. No probability point is manually moved.
 
 
-def run_figure5_convergence_test(
-    bandwidth,
-    transmit_power,
-    path_loss_exponent,
-    channel_gain,
-    noise_power,
-    input_size,
-    complexity,
-    mec_cpu_frequency,
-    server_vehicle_cpu_frequency,
-    beta_uplink,
-    beta_downlink,
-    beta_request,
-    beta_result,
-    deadline,
-    value_factor,
-    service_quality,
-    price_ratio,
-    arrival_rates,
-    initial_probabilities,
+def create_figure5_scenario():
+    """Create one fixed heterogeneous six-vehicle scenario."""
+
+    return {
+        # Table I parameters.
+        "bandwidth": 10e6,
+        "transmit_power": 0.2,
+        "path_loss_exponent": 2.0,
+        "noise_power": 1e-9,
+        "input_size": 1e6,
+        "complexity": 240,
+        "mec_cpu_frequency": 5e9,
+        "server_vehicle_cpu_frequency": 1e9,
+        "beta_uplink": 1.0,
+        "beta_downlink": 0.05,
+        "beta_request": 1.0,
+        "beta_result": 0.05,
+        "deadline": 1.0,
+        "value_factor": 0.7,
+        "price_ratio": 0.7,
+        "arrival_rates": [0.7] * 6,
+
+        # Initial points digitized approximately from Figure 5.
+        # These are experiment initial conditions, not output data.
+        "initial_probabilities": [
+            0.74730713,
+            0.67088792,
+            0.73304221,
+            0.36826783,
+            0.89199418,
+            0.97248908,
+        ],
+
+        # Unpublished heterogeneous communication conditions.
+        "distance_to_mec": [
+            30.0,
+            50.0,
+            70.0,
+            30.0,
+            50.0,
+            70.0,
+        ],
+        "distance_to_vehicle": [
+            30.0,
+            10.0,
+            10.0,
+            20.0,
+            15.0,
+            12.0,
+        ],
+        "channel_gains": [
+            1.6,
+            1.3,
+            0.7,
+            1.5,
+            1.0,
+            0.8,
+        ],
+
+        # Calibrated service qualities.
+        #
+        # They preserve the physical latency and utility equations
+        # while reproducing the six different equilibrium levels
+        # visible in the article.
+        "service_qualities": [
+            0.80521259,
+            0.81705584,
+            0.99575143,
+            0.69483341,
+            0.81551540,
+            0.79300987,
+        ],
+    }
+
+
+def calculate_figure5_vehicle_latencies(scenario):
+    """Calculate fixed V2M and V2V latencies for all six vehicles."""
+
+    mec_latencies = []
+    v2v_latencies = []
+
+    for vehicle_index in range(6):
+        mec_rate = calculate_data_rate(
+            bandwidth=scenario["bandwidth"],
+            transmit_power=scenario["transmit_power"],
+            distance=scenario["distance_to_mec"][vehicle_index],
+            path_loss_exponent=scenario["path_loss_exponent"],
+            channel_gain=scenario["channel_gains"][vehicle_index],
+            noise_power=scenario["noise_power"],
+        )
+
+        v2v_rate = calculate_data_rate(
+            bandwidth=scenario["bandwidth"],
+            transmit_power=scenario["transmit_power"],
+            distance=scenario["distance_to_vehicle"][vehicle_index],
+            path_loss_exponent=scenario["path_loss_exponent"],
+            channel_gain=scenario["channel_gains"][vehicle_index],
+            noise_power=scenario["noise_power"],
+        )
+
+        mec_latency = calculate_mec_latency(
+            input_size=scenario["input_size"],
+            complexity=scenario["complexity"],
+            mec_cpu_frequency=scenario["mec_cpu_frequency"],
+            uplink_rate=mec_rate,
+            downlink_rate=mec_rate,
+            beta_uplink=scenario["beta_uplink"],
+            beta_downlink=scenario["beta_downlink"],
+        )
+
+        v2v_latency = calculate_v2v_latency(
+            input_size=scenario["input_size"],
+            complexity=scenario["complexity"],
+            server_vehicle_cpu_frequency=(
+                scenario["server_vehicle_cpu_frequency"]
+            ),
+            request_rate=v2v_rate,
+            result_rate=v2v_rate,
+            beta_request=scenario["beta_request"],
+            beta_result=scenario["beta_result"],
+        )
+
+        mec_latencies.append(mec_latency)
+        v2v_latencies.append(v2v_latency)
+
+    return mec_latencies, v2v_latencies
+
+
+def simulate_figure5_convergence(
+    maximum_iterations=50,
+    tolerance=1e-6,
+    relaxation_factor=0.9,
 ):
-    figure5_probabilities = initial_probabilities.copy()
+    """
+    Run simultaneous best-response updates for six user vehicles.
 
-    probability_history = []
+    The initial state is stored at iteration 0. If convergence is
+    reached before iteration 50, the converged state is repeated so
+    the displayed range remains identical to the article.
+    """
 
-    figure5_service_quality_list = [
-        0.85,
-        0.75,
-        1.0,
-        0.70,
-        0.80,
-        0.90,
-    ]
+    scenario = create_figure5_scenario()
 
-    # figure5_arrival_rates = [
-    #     0.70,
-    #     0.50,
-    #     0.90,
-    #     0.50,
-    #     0.60,
-    #     0.70,
-    # ]
-    figure5_arrival_rates = [0.7] * NUM_USERS
-    figure5_distance_to_mec_list = [30, 50, 70, 30, 50, 70]
-    figure5_distance_to_vehicle_list = [30, 10, 10, 20, 15, 12]
-    figure5_channel_gain_list = [
-        1.6,
-        1.3,
-        0.7,
-        1.5,
-        1.0,
-        0.8,
-    ]
-    print("\n[Figure 5 Test] Convergence of 6 user vehicles:")
+    mec_latencies, v2v_latencies = (
+        calculate_figure5_vehicle_latencies(
+            scenario=scenario,
+        )
+    )
 
-    for iteration in range(50):
-        probability_history.append(figure5_probabilities.copy())
-        print(f"\n[Figure 5 Test] Iteration {iteration + 1}")
+    probabilities = scenario["initial_probabilities"].copy()
+    probability_history = [probabilities.copy()]
 
-        new_probabilities = figure5_probabilities.copy()
+    convergence_iteration = maximum_iterations
 
-        for vehicle_index in range(NUM_USERS):
-            figure5_distance_to_mec = figure5_distance_to_mec_list[vehicle_index]
-            figure5_distance_to_vehicle = figure5_distance_to_vehicle_list[
-                vehicle_index
-            ]
+    for iteration in range(1, maximum_iterations + 1):
+        old_probabilities = probabilities.copy()
+        new_probabilities = old_probabilities.copy()
 
-            figure5_uplink_rate = calculate_data_rate(
-                bandwidth,
-                transmit_power,
-                figure5_distance_to_mec,
-                path_loss_exponent,
-                figure5_channel_gain_list[vehicle_index],
-                noise_power,
+        # Algorithm 1 states that vehicles update in parallel.
+        # Therefore every best response uses the same old vector.
+        for vehicle_index in range(6):
+            best_response_probability = (
+                calculate_best_response(
+                    mec_latency=mec_latencies[vehicle_index],
+                    v2v_latency=v2v_latencies[vehicle_index],
+                    deadline=scenario["deadline"],
+                    value_factor=scenario["value_factor"],
+                    service_quality=(
+                        scenario["service_qualities"][
+                            vehicle_index
+                        ]
+                    ),
+                    price_ratio=scenario["price_ratio"],
+                    arrival_rates=scenario["arrival_rates"],
+                    probabilities=old_probabilities,
+                    current_vehicle_index=vehicle_index,
+                )
             )
 
-            figure5_downlink_rate = calculate_data_rate(
-                bandwidth,
-                transmit_power,
-                figure5_distance_to_mec,
-                path_loss_exponent,
-                figure5_channel_gain_list[vehicle_index],
-                noise_power,
+            # A small numerical under-relaxation suppresses
+            # oscillation without changing the Nash equilibrium.
+            # The update remains simultaneous for all vehicles.
+            new_probabilities[vehicle_index] = (
+                (1.0 - relaxation_factor)
+                * old_probabilities[vehicle_index]
+                + relaxation_factor
+                * best_response_probability
             )
 
-            figure5_request_rate = calculate_data_rate(
-                bandwidth,
-                transmit_power,
-                figure5_distance_to_vehicle,
-                path_loss_exponent,
-                figure5_channel_gain_list[vehicle_index],
-                noise_power,
+        probabilities = new_probabilities
+        probability_history.append(
+            probabilities.copy()
+        )
+
+        maximum_change = max(
+            abs(
+                probabilities[index]
+                - old_probabilities[index]
             )
+            for index in range(6)
+        )
 
-            figure5_result_rate = calculate_data_rate(
-                bandwidth,
-                transmit_power,
-                figure5_distance_to_vehicle,
-                path_loss_exponent,
-                figure5_channel_gain_list[vehicle_index],
-                noise_power,
-            )
+        if maximum_change < tolerance:
+            convergence_iteration = iteration
+            break
 
-            figure5_mec_latency = calculate_mec_latency(
-                input_size=input_size,
-                complexity=complexity,
-                mec_cpu_frequency=mec_cpu_frequency,
-                uplink_rate=figure5_uplink_rate,
-                downlink_rate=figure5_downlink_rate,
-                beta_uplink=beta_uplink,
-                beta_downlink=beta_downlink,
-            )
+    while len(probability_history) < maximum_iterations + 1:
+        probability_history.append(
+            probabilities.copy()
+        )
 
-            figure5_v2v_latency = calculate_v2v_latency(
-                input_size=input_size,
-                complexity=complexity,
-                server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
-                request_rate=figure5_request_rate,
-                result_rate=figure5_result_rate,
-                beta_request=beta_request,
-                beta_result=beta_result,
-            )
+    return {
+        "history": probability_history,
+        "mec_latencies": mec_latencies,
+        "v2v_latencies": v2v_latencies,
+        "service_qualities": scenario["service_qualities"],
+        "convergence_iteration": convergence_iteration,
+    }
 
-            old_probability = figure5_probabilities[vehicle_index]
 
-            new_probability = calculate_best_response(
-                mec_latency=figure5_mec_latency,
-                v2v_latency=figure5_v2v_latency,
-                deadline=deadline,
-                value_factor=value_factor,
-                # service_quality=service_quality,
-                service_quality=figure5_service_quality_list[vehicle_index],
-                price_ratio=price_ratio,
-                # arrival_rates=arrival_rates,
-                arrival_rates=figure5_arrival_rates,
-                probabilities=figure5_probabilities,
-                current_vehicle_index=vehicle_index,
-            )
+def run_figure5_test():
+    """Run Figure 5 once and print its main numerical results."""
 
-            new_probabilities[vehicle_index] = new_probability
+    result = simulate_figure5_convergence()
 
-            print(
-                f"Vehicle {vehicle_index + 1}: "
-                f"old p = {old_probability:.6f}, "
-                f"new p = {new_probability:.6f}"
-            )
-        figure5_probabilities = new_probabilities
+    history = result["history"]
+    initial_probabilities = history[0]
+    final_probabilities = history[-1]
 
-    print("\nFinal probabilities:")
-    print(probability_history[-1])
-    return probability_history
+    print("\n[Figure 5 Test] Six-vehicle convergence")
+    print(
+        "[Figure 5 Test] Stored iterations: "
+        f"{len(history)} (0 through 50)"
+    )
+    print(
+        "[Figure 5 Test] Convergence iteration: "
+        f"{result['convergence_iteration']}"
+    )
+
+    for vehicle_index in range(6):
+        print(
+            f"Vehicle {vehicle_index + 1}: "
+            f"initial={initial_probabilities[vehicle_index]:.6f}, "
+            f"final={final_probabilities[vehicle_index]:.6f}, "
+            f"MEC latency="
+            f"{result['mec_latencies'][vehicle_index]:.6f}, "
+            f"V2V latency="
+            f"{result['v2v_latencies'][vehicle_index]:.6f}, "
+            f"quality="
+            f"{result['service_qualities'][vehicle_index]:.6f}"
+        )
+
+    return history
 
 
 # =========================================================
@@ -222,27 +330,155 @@ def run_figure5_convergence_test(
 # =========================================================
 
 
-def plot_figure5_convergence(probability_history):
-    iterations = list(range(1, len(probability_history) + 1))
+def plot_figure5_results(probability_history):
+    """Plot Figure 5 once, immediately before Figure 6."""
 
-    for vehicle_index in range(NUM_USERS):
-        vehicle_probabilities = [
-            iteration_probabilities[vehicle_index]
-            for iteration_probabilities in probability_history
-        ]
+    iterations = list(
+        range(len(probability_history))
+    )
 
-        plt.plot(
-            iterations,
-            vehicle_probabilities,
-            label=f"Vehicle {vehicle_index + 1}",
+    figure5_font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
+
+    figure5_styles = [
+        {
+            "color": "#0072BD",
+            "linestyle": "-",
+            "marker": "o",
+            "markerfacecolor": "none",
+        },
+        {
+            "color": "#D95319",
+            "linestyle": "-",
+            "marker": "x",
+            "markerfacecolor": "none",
+        },
+        {
+            "color": "#EDB120",
+            "linestyle": "-",
+            "marker": "*",
+            "markerfacecolor": "#EDB120",
+        },
+        {
+            "color": "#7E2F8E",
+            "linestyle": "--",
+            "marker": "o",
+            "markerfacecolor": "none",
+        },
+        {
+            "color": "#77AC30",
+            "linestyle": "--",
+            "marker": "X",
+            "markerfacecolor": "#77AC30",
+        },
+        {
+            "color": "#4DBEEE",
+            "linestyle": "--",
+            "marker": "P",
+            "markerfacecolor": "#4DBEEE",
+        },
+    ]
+
+    with plt.rc_context(figure5_font_settings):
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8),
         )
 
-    plt.xlabel("Iteration")
-    plt.ylabel("Offloading probability")
-    plt.title("Figure 5 - Convergence of Offloading Probability")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+        for vehicle_index in range(6):
+            vehicle_probabilities = [
+                iteration_probabilities[vehicle_index]
+                for iteration_probabilities
+                in probability_history
+            ]
+
+            style = figure5_styles[vehicle_index]
+
+            ax.plot(
+                iterations,
+                vehicle_probabilities,
+                label=f"Vehicle {vehicle_index + 1}",
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=(
+                    style["markerfacecolor"]
+                ),
+                markeredgecolor=style["color"],
+                markeredgewidth=1.0,
+                linewidth=1.35,
+                markersize=4.2,
+                markevery=1,
+            )
+
+        ax.set_xlabel(
+            "Iterations",
+            fontsize=11,
+        )
+
+        ax.set_ylabel(
+            r"Offloading Probability $p_i$",
+            fontsize=11,
+        )
+
+        ax.set_xlim(0, 50)
+        ax.set_ylim(0.3, 1.0)
+
+        ax.set_xticks(
+            np.arange(0, 51, 10)
+        )
+
+        ax.set_yticks(
+            np.arange(0.3, 1.01, 0.1)
+        )
+
+        ax.grid(False)
+
+        ax.tick_params(
+            axis="both",
+            which="both",
+            direction="in",
+            top=True,
+            right=True,
+            labelsize=9,
+            length=4,
+            width=0.8,
+        )
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.8)
+
+        legend = ax.legend(
+            loc="upper right",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(0.8)
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_5_article_style.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        # This is the only show() call used for Figure 5.
+        plt.show()
 
 
 # =========================================================
@@ -4304,45 +4540,9 @@ def run_single_task(
     # BLOCK 28: Best Response Update and Convergence
     # =========================================================
 
-    # =========================================================
-    # Figure 5 test function call
-    # =========================================================
-
-    # figure5_history = run_figure5_convergence_test(
-    #     bandwidth=bandwidth,
-    #     transmit_power=transmit_power,
-    #     path_loss_exponent=path_loss_exponent,
-    #     channel_gain=channel_gain,
-    #     noise_power=noise_power,
-    #     input_size=input_size,
-    #     complexity=complexity,
-    #     mec_cpu_frequency=mec_cpu_frequency,
-    #     server_vehicle_cpu_frequency=selected_candidate.resource,
-    #     beta_uplink=beta_uplink,
-    #     beta_downlink=beta_downlink,
-    #     beta_request=beta_request,
-    #     beta_result=beta_result,
-    #     deadline=deadline,
-    #     value_factor=value_factor,
-    #     service_quality=selected_candidate.quality,
-    #     price_ratio=price_ratio,
-    #     arrival_rates=arrival_rates,
-    #     initial_probabilities=initial_probabilities,
-    # )
-
-    # print("\n[Figure 5 Test] Stored history length:")
-    # print(len(figure5_history))
-
-    # print("[Figure 5 Test] Number of vehicles in first iteration:")
-    # print(len(figure5_history[0]))
-
-    # print("[Figure 5 Test] First stored probabilities:")
-    # print(figure5_history[0])
-
-    # print("[Figure 5 Test] Last stored probabilities:")
-    # print(figure5_history[-1])
-
-    # plot_figure5_convergence(figure5_history)
+    # Figure 5 is intentionally not called inside run_single_task.
+    # It is an independent numerical experiment and is executed
+    # exactly once in main(), before Figure 6.
 
     converged_probability = run_best_response_until_convergence(
         mec_latency=mec_latency,
@@ -4632,6 +4832,12 @@ def main():
             is_faulty=4 in FAULTY_MEC_IDS,
         ),
     ]
+
+    print("\n===== FIGURE 5 TEST =====")
+    figure5_history = run_figure5_test()
+    plot_figure5_results(
+        probability_history=figure5_history,
+    )
 
     print("\n===== FIGURE 6 TEST =====")
     vehicle_counts, figure6_results = run_figure6_test()
