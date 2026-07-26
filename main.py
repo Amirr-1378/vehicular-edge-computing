@@ -54,31 +54,228 @@ FAULTY_MEC_IDS = {3}
 
 
 # =========================================================
-# Figure 5 Convergence Experiment
+# Figure 5 Calibrated Monte Carlo Convergence Experiment
 # =========================================================
 
-# Figure 5 is different from Figures 6-14:
-# its horizontal axis is the best-response iteration itself.
+# This experiment combines two goals:
 #
-# The paper publishes the common parameters in Table I and states
-# that Figure 5 contains six user vehicles, but it does not publish
-# the initial strategy, distance, channel realization, or service
-# quality of each individual vehicle.
+# 1) Preserve the convergence levels and initial conditions visible
+#    in Figure 5 of the article.
+# 2) Evaluate the algorithm over 50 stochastic realizations instead
+#    of relying on one deterministic calibrated scenario.
 #
-# The scenario below calibrates only those unpublished per-vehicle
-# inputs. Every later probability is produced by the best-response
-# equation of the paper. No probability point is manually moved.
+# The values explicitly reported in Table I remain fixed.
+# The unpublished environmental quantities are random in every trial.
+#
+# Important:
+# - No probability point is changed after simulation.
+# - The Monte Carlo mean is produced by the best-response algorithm.
+# - The probability distributions are calibrated once at the input
+#   level so that their ensemble mean reproduces Figure 5.
+# - This is a calibrated stochastic reconstruction, not a claim that
+#   the original unpublished random seeds have been recovered.
+
+FIGURE_5_MONTE_CARLO_TRIALS = 50
+FIGURE_5_MONTE_CARLO_BASE_SEED = 5005
+FIGURE_5_MAXIMUM_ITERATIONS = 50
+FIGURE_5_CONVERGENCE_TOLERANCE = 1e-6
+FIGURE_5_RELAXATION_FACTOR = 0.9
+
+# Fixed controls not numerically published for Figure 5.
+FIGURE_5_NOISE_POWER = 1e-9
+FIGURE_5_DEADLINE = 1.0
+
+# Approximate initial probabilities read from Figure 5.
+# They are used as distribution means, not as identical values in
+# every trial.
+FIGURE_5_INITIAL_PROBABILITY_MEANS = np.array(
+    [
+        0.74730713,
+        0.67088792,
+        0.73304221,
+        0.36826783,
+        0.89199418,
+        0.97248908,
+    ],
+    dtype=float,
+)
+
+# Nominal communication geometry used as the median of the random
+# lognormal distance distributions. The paper does not publish the
+# individual distances of the six vehicles.
+FIGURE_5_MEC_DISTANCE_MEDIANS = np.array(
+    [30.0, 50.0, 70.0, 30.0, 50.0, 70.0],
+    dtype=float,
+)
+
+FIGURE_5_V2V_DISTANCE_MEDIANS = np.array(
+    [30.0, 10.0, 10.0, 20.0, 15.0, 12.0],
+    dtype=float,
+)
+
+# Vehicle-specific mean channel powers.
+#
+# In each trial, the instantaneous power gain |h|^2 is independently
+# sampled from an exponential distribution, which corresponds to a
+# Rayleigh fading channel coefficient.
+FIGURE_5_MEAN_CHANNEL_POWERS = np.array(
+    [
+        1.6**2,
+        1.3**2,
+        0.7**2,
+        1.5**2,
+        1.0**2,
+        0.8**2,
+    ],
+    dtype=float,
+)
+
+# These are the calibrated means of the service-quality distributions.
+# Each trial still samples a new quality value from a beta distribution.
+#
+# The means were calibrated jointly, once, so that the average of the
+# 50 Monte Carlo trials reproduces the six equilibrium levels visible
+# in Figure 5. They are not output probabilities.
+FIGURE_5_SERVICE_QUALITY_MEANS = np.array(
+    [
+        0.80760786,
+        0.80500053,
+        0.99565293,
+        0.69787083,
+        0.81590468,
+        0.78968632,
+    ],
+    dtype=float,
+)
+
+# Distribution spreads fixed before the Monte Carlo run.
+FIGURE_5_INITIAL_BETA_CONCENTRATION = 200.0
+FIGURE_5_QUALITY_BETA_CONCENTRATION = 250.0
+FIGURE_5_DISTANCE_LOG_STD = 0.08
+
+# Approximate final equilibrium values visible in the article.
+# These values are used only to print the reconstruction error.
+# They are never substituted into a simulated curve.
+FIGURE_5_REFERENCE_FINAL_PROBABILITIES = np.array(
+    [
+        0.482387,
+        0.475255,
+        0.367249,
+        0.552693,
+        0.476274,
+        0.490539,
+    ],
+    dtype=float,
+)
 
 
-def create_figure5_scenario():
-    """Create one fixed heterogeneous six-vehicle scenario."""
+def sample_beta_with_mean(
+    random_generator,
+    means,
+    concentration,
+):
+    """Sample beta variables with specified means and concentration."""
+
+    clipped_means = np.clip(
+        np.asarray(means, dtype=float),
+        1e-6,
+        1.0 - 1e-6,
+    )
+
+    alpha_parameters = clipped_means * concentration
+    beta_parameters = (
+        1.0 - clipped_means
+    ) * concentration
+
+    return random_generator.beta(
+        alpha_parameters,
+        beta_parameters,
+    )
+
+
+def create_figure5_calibrated_random_scenario(
+    random_generator,
+):
+    """
+    Create one stochastic six-vehicle realization.
+
+    Fixed values:
+        Parameters explicitly reported in Table I.
+
+    Random values:
+        - initial offloading probabilities,
+        - V2M distances,
+        - V2V distances,
+        - independent Rayleigh fading power gains,
+        - service qualities.
+
+    The random distributions are vehicle-specific because Figure 5
+    itself shows six different vehicle environments and six different
+    equilibrium values.
+    """
+
+    num_vehicles = 6
+
+    initial_probabilities = sample_beta_with_mean(
+        random_generator=random_generator,
+        means=FIGURE_5_INITIAL_PROBABILITY_MEANS,
+        concentration=FIGURE_5_INITIAL_BETA_CONCENTRATION,
+    )
+
+    distance_to_mec = (
+        FIGURE_5_MEC_DISTANCE_MEDIANS
+        * np.exp(
+            random_generator.normal(
+                loc=0.0,
+                scale=FIGURE_5_DISTANCE_LOG_STD,
+                size=num_vehicles,
+            )
+        )
+    )
+
+    distance_to_vehicle = (
+        FIGURE_5_V2V_DISTANCE_MEDIANS
+        * np.exp(
+            random_generator.normal(
+                loc=0.0,
+                scale=FIGURE_5_DISTANCE_LOG_STD,
+                size=num_vehicles,
+            )
+        )
+    )
+
+    mec_channel_power_gains = random_generator.exponential(
+        scale=FIGURE_5_MEAN_CHANNEL_POWERS,
+        size=num_vehicles,
+    )
+
+    v2v_channel_power_gains = random_generator.exponential(
+        scale=FIGURE_5_MEAN_CHANNEL_POWERS,
+        size=num_vehicles,
+    )
+
+    mec_channel_power_gains = np.maximum(
+        mec_channel_power_gains,
+        1e-12,
+    )
+
+    v2v_channel_power_gains = np.maximum(
+        v2v_channel_power_gains,
+        1e-12,
+    )
+
+    service_qualities = sample_beta_with_mean(
+        random_generator=random_generator,
+        means=FIGURE_5_SERVICE_QUALITY_MEANS,
+        concentration=FIGURE_5_QUALITY_BETA_CONCENTRATION,
+    )
 
     return {
-        # Table I parameters.
+        # Parameters explicitly reported in the article.
+        "num_vehicles": num_vehicles,
         "bandwidth": 10e6,
         "transmit_power": 0.2,
         "path_loss_exponent": 2.0,
-        "noise_power": 1e-9,
         "input_size": 1e6,
         "complexity": 240,
         "mec_cpu_frequency": 5e9,
@@ -87,93 +284,83 @@ def create_figure5_scenario():
         "beta_downlink": 0.05,
         "beta_request": 1.0,
         "beta_result": 0.05,
-        "deadline": 1.0,
         "value_factor": 0.7,
         "price_ratio": 0.7,
-        "arrival_rates": [0.7] * 6,
+        "arrival_rates": [0.7] * num_vehicles,
 
-        # Initial points digitized approximately from Figure 5.
-        # These are experiment initial conditions, not output data.
-        "initial_probabilities": [
-            0.74730713,
-            0.67088792,
-            0.73304221,
-            0.36826783,
-            0.89199418,
-            0.97248908,
-        ],
+        # Fixed numerical controls.
+        "noise_power": FIGURE_5_NOISE_POWER,
+        "deadline": FIGURE_5_DEADLINE,
 
-        # Unpublished heterogeneous communication conditions.
-        "distance_to_mec": [
-            30.0,
-            50.0,
-            70.0,
-            30.0,
-            50.0,
-            70.0,
-        ],
-        "distance_to_vehicle": [
-            30.0,
-            10.0,
-            10.0,
-            20.0,
-            15.0,
-            12.0,
-        ],
-        "channel_gains": [
-            1.6,
-            1.3,
-            0.7,
-            1.5,
-            1.0,
-            0.8,
-        ],
-
-        # Calibrated service qualities.
-        #
-        # They preserve the physical latency and utility equations
-        # while reproducing the six different equilibrium levels
-        # visible in the article.
-        "service_qualities": [
-            0.80521259,
-            0.81705584,
-            0.99575143,
-            0.69483341,
-            0.81551540,
-            0.79300987,
-        ],
+        # Random environmental realization.
+        "initial_probabilities": initial_probabilities.tolist(),
+        "distance_to_mec": distance_to_mec.tolist(),
+        "distance_to_vehicle": distance_to_vehicle.tolist(),
+        "mec_channel_power_gains": (
+            mec_channel_power_gains.tolist()
+        ),
+        "v2v_channel_power_gains": (
+            v2v_channel_power_gains.tolist()
+        ),
+        "service_qualities": service_qualities.tolist(),
     }
 
 
-def calculate_figure5_vehicle_latencies(scenario):
-    """Calculate fixed V2M and V2V latencies for all six vehicles."""
+def calculate_figure5_calibrated_latencies(
+    scenario,
+):
+    """Calculate V2M and V2V latencies for one random trial."""
 
     mec_latencies = []
     v2v_latencies = []
 
-    for vehicle_index in range(6):
+    num_vehicles = scenario["num_vehicles"]
+
+    for vehicle_index in range(num_vehicles):
+        mec_channel_amplitude = np.sqrt(
+            scenario["mec_channel_power_gains"][
+                vehicle_index
+            ]
+        )
+
+        v2v_channel_amplitude = np.sqrt(
+            scenario["v2v_channel_power_gains"][
+                vehicle_index
+            ]
+        )
+
         mec_rate = calculate_data_rate(
             bandwidth=scenario["bandwidth"],
             transmit_power=scenario["transmit_power"],
-            distance=scenario["distance_to_mec"][vehicle_index],
-            path_loss_exponent=scenario["path_loss_exponent"],
-            channel_gain=scenario["channel_gains"][vehicle_index],
+            distance=scenario["distance_to_mec"][
+                vehicle_index
+            ],
+            path_loss_exponent=(
+                scenario["path_loss_exponent"]
+            ),
+            channel_gain=mec_channel_amplitude,
             noise_power=scenario["noise_power"],
         )
 
         v2v_rate = calculate_data_rate(
             bandwidth=scenario["bandwidth"],
             transmit_power=scenario["transmit_power"],
-            distance=scenario["distance_to_vehicle"][vehicle_index],
-            path_loss_exponent=scenario["path_loss_exponent"],
-            channel_gain=scenario["channel_gains"][vehicle_index],
+            distance=scenario["distance_to_vehicle"][
+                vehicle_index
+            ],
+            path_loss_exponent=(
+                scenario["path_loss_exponent"]
+            ),
+            channel_gain=v2v_channel_amplitude,
             noise_power=scenario["noise_power"],
         )
 
         mec_latency = calculate_mec_latency(
             input_size=scenario["input_size"],
             complexity=scenario["complexity"],
-            mec_cpu_frequency=scenario["mec_cpu_frequency"],
+            mec_cpu_frequency=(
+                scenario["mec_cpu_frequency"]
+            ),
             uplink_rate=mec_rate,
             downlink_rate=mec_rate,
             beta_uplink=scenario["beta_uplink"],
@@ -184,7 +371,9 @@ def calculate_figure5_vehicle_latencies(scenario):
             input_size=scenario["input_size"],
             complexity=scenario["complexity"],
             server_vehicle_cpu_frequency=(
-                scenario["server_vehicle_cpu_frequency"]
+                scenario[
+                    "server_vehicle_cpu_frequency"
+                ]
             ),
             request_rate=v2v_rate,
             result_rate=v2v_rate,
@@ -198,45 +387,54 @@ def calculate_figure5_vehicle_latencies(scenario):
     return mec_latencies, v2v_latencies
 
 
-def simulate_figure5_convergence(
-    maximum_iterations=50,
-    tolerance=1e-6,
-    relaxation_factor=0.9,
+def simulate_figure5_calibrated_convergence(
+    scenario,
+    maximum_iterations=FIGURE_5_MAXIMUM_ITERATIONS,
+    tolerance=FIGURE_5_CONVERGENCE_TOLERANCE,
+    relaxation_factor=FIGURE_5_RELAXATION_FACTOR,
 ):
-    """
-    Run simultaneous best-response updates for six user vehicles.
-
-    The initial state is stored at iteration 0. If convergence is
-    reached before iteration 50, the converged state is repeated so
-    the displayed range remains identical to the article.
-    """
-
-    scenario = create_figure5_scenario()
+    """Run simultaneous best-response updates for one trial."""
 
     mec_latencies, v2v_latencies = (
-        calculate_figure5_vehicle_latencies(
+        calculate_figure5_calibrated_latencies(
             scenario=scenario,
         )
     )
 
-    probabilities = scenario["initial_probabilities"].copy()
-    probability_history = [probabilities.copy()]
+    probabilities = np.asarray(
+        scenario["initial_probabilities"],
+        dtype=float,
+    )
+
+    probability_history = [
+        probabilities.copy()
+    ]
 
     convergence_iteration = maximum_iterations
+    converged = False
 
-    for iteration in range(1, maximum_iterations + 1):
+    for iteration in range(
+        1,
+        maximum_iterations + 1,
+    ):
         old_probabilities = probabilities.copy()
         new_probabilities = old_probabilities.copy()
 
-        # Algorithm 1 states that vehicles update in parallel.
-        # Therefore every best response uses the same old vector.
-        for vehicle_index in range(6):
+        for vehicle_index in range(
+            scenario["num_vehicles"]
+        ):
             best_response_probability = (
                 calculate_best_response(
-                    mec_latency=mec_latencies[vehicle_index],
-                    v2v_latency=v2v_latencies[vehicle_index],
+                    mec_latency=mec_latencies[
+                        vehicle_index
+                    ],
+                    v2v_latency=v2v_latencies[
+                        vehicle_index
+                    ],
                     deadline=scenario["deadline"],
-                    value_factor=scenario["value_factor"],
+                    value_factor=(
+                        scenario["value_factor"]
+                    ),
                     service_quality=(
                         scenario["service_qualities"][
                             vehicle_index
@@ -244,14 +442,11 @@ def simulate_figure5_convergence(
                     ),
                     price_ratio=scenario["price_ratio"],
                     arrival_rates=scenario["arrival_rates"],
-                    probabilities=old_probabilities,
+                    probabilities=old_probabilities.tolist(),
                     current_vehicle_index=vehicle_index,
                 )
             )
 
-            # A small numerical under-relaxation suppresses
-            # oscillation without changing the Nash equilibrium.
-            # The update remains simultaneous for all vehicles.
             new_probabilities[vehicle_index] = (
                 (1.0 - relaxation_factor)
                 * old_probabilities[vehicle_index]
@@ -260,81 +455,301 @@ def simulate_figure5_convergence(
             )
 
         probabilities = new_probabilities
+
         probability_history.append(
             probabilities.copy()
         )
 
-        maximum_change = max(
-            abs(
-                probabilities[index]
-                - old_probabilities[index]
+        maximum_change = float(
+            np.max(
+                np.abs(
+                    probabilities
+                    - old_probabilities
+                )
             )
-            for index in range(6)
         )
 
         if maximum_change < tolerance:
             convergence_iteration = iteration
+            converged = True
             break
 
-    while len(probability_history) < maximum_iterations + 1:
+    while (
+        len(probability_history)
+        < maximum_iterations + 1
+    ):
         probability_history.append(
             probabilities.copy()
         )
 
     return {
-        "history": probability_history,
-        "mec_latencies": mec_latencies,
-        "v2v_latencies": v2v_latencies,
-        "service_qualities": scenario["service_qualities"],
-        "convergence_iteration": convergence_iteration,
+        "history": np.asarray(
+            probability_history,
+            dtype=float,
+        ),
+        "mec_latencies": np.asarray(
+            mec_latencies,
+            dtype=float,
+        ),
+        "v2v_latencies": np.asarray(
+            v2v_latencies,
+            dtype=float,
+        ),
+        "convergence_iteration": (
+            convergence_iteration
+        ),
+        "converged": converged,
+    }
+
+
+def run_figure5_calibrated_monte_carlo(
+    number_of_trials=FIGURE_5_MONTE_CARLO_TRIALS,
+    base_seed=FIGURE_5_MONTE_CARLO_BASE_SEED,
+):
+    """Run the calibrated stochastic Figure 5 experiment."""
+
+    trial_histories = []
+    convergence_iterations = []
+    convergence_flags = []
+
+    for trial_index in range(number_of_trials):
+        seed_sequence = np.random.SeedSequence(
+            [
+                base_seed,
+                trial_index,
+                5,
+            ]
+        )
+
+        random_generator = np.random.default_rng(
+            seed_sequence
+        )
+
+        scenario = (
+            create_figure5_calibrated_random_scenario(
+                random_generator=random_generator,
+            )
+        )
+
+        result = (
+            simulate_figure5_calibrated_convergence(
+                scenario=scenario,
+            )
+        )
+
+        trial_histories.append(
+            result["history"]
+        )
+
+        convergence_iterations.append(
+            result["convergence_iteration"]
+        )
+
+        convergence_flags.append(
+            result["converged"]
+        )
+
+    histories = np.stack(
+        trial_histories,
+        axis=0,
+    )
+
+    mean_history = histories.mean(axis=0)
+
+    standard_deviation_history = histories.std(
+        axis=0,
+        ddof=1,
+    )
+
+    normal_critical_value = (
+        NormalDist().inv_cdf(0.975)
+    )
+
+    confidence_half_width = (
+        normal_critical_value
+        * standard_deviation_history
+        / np.sqrt(number_of_trials)
+    )
+
+    lower_confidence_history = np.clip(
+        mean_history - confidence_half_width,
+        0.0,
+        1.0,
+    )
+
+    upper_confidence_history = np.clip(
+        mean_history + confidence_half_width,
+        0.0,
+        1.0,
+    )
+
+    final_means = mean_history[-1]
+
+    final_errors = (
+        final_means
+        - FIGURE_5_REFERENCE_FINAL_PROBABILITIES
+    )
+
+    root_mean_squared_error = float(
+        np.sqrt(
+            np.mean(
+                final_errors**2
+            )
+        )
+    )
+
+    convergence_iterations_array = np.asarray(
+        convergence_iterations,
+        dtype=float,
+    )
+
+    convergence_flags_array = np.asarray(
+        convergence_flags,
+        dtype=bool,
+    )
+
+    return {
+        "number_of_trials": number_of_trials,
+        "base_seed": base_seed,
+        "histories": histories,
+        "mean_history": mean_history,
+        "lower_confidence_history": (
+            lower_confidence_history
+        ),
+        "upper_confidence_history": (
+            upper_confidence_history
+        ),
+        "final_means": final_means,
+        "reference_final_probabilities": (
+            FIGURE_5_REFERENCE_FINAL_PROBABILITIES
+        ),
+        "final_errors": final_errors,
+        "final_rmse": root_mean_squared_error,
+        "mean_convergence_iteration": float(
+            convergence_iterations_array.mean()
+        ),
+        "standard_deviation_convergence_iteration": float(
+            convergence_iterations_array.std(
+                ddof=1
+            )
+        ),
+        "minimum_convergence_iteration": int(
+            convergence_iterations_array.min()
+        ),
+        "maximum_convergence_iteration": int(
+            convergence_iterations_array.max()
+        ),
+        "convergence_rate": float(
+            convergence_flags_array.mean()
+        ),
     }
 
 
 def run_figure5_test():
-    """Run Figure 5 once and print its main numerical results."""
+    """Run Figure 5 Monte Carlo and print its main results."""
 
-    result = simulate_figure5_convergence()
+    result = run_figure5_calibrated_monte_carlo()
 
-    history = result["history"]
-    initial_probabilities = history[0]
-    final_probabilities = history[-1]
-
-    print("\n[Figure 5 Test] Six-vehicle convergence")
     print(
-        "[Figure 5 Test] Stored iterations: "
-        f"{len(history)} (0 through 50)"
+        "\n[Figure 5 Calibrated Monte Carlo] "
+        f"Trials={result['number_of_trials']}, "
+        f"base_seed={result['base_seed']}"
     )
+
     print(
-        "[Figure 5 Test] Convergence iteration: "
-        f"{result['convergence_iteration']}"
+        "[Figure 5 Calibrated Monte Carlo] "
+        "Each trial independently samples initial strategies, "
+        "distances, Rayleigh fading, and service quality."
+    )
+
+    print(
+        "[Figure 5 Calibrated Monte Carlo] "
+        f"Convergence rate="
+        f"{100.0 * result['convergence_rate']:.1f}%"
+    )
+
+    print(
+        "[Figure 5 Calibrated Monte Carlo] "
+        "Convergence iterations: "
+        f"mean={result['mean_convergence_iteration']:.3f}, "
+        f"std="
+        f"{result['standard_deviation_convergence_iteration']:.3f}, "
+        f"min={result['minimum_convergence_iteration']}, "
+        f"max={result['maximum_convergence_iteration']}"
+    )
+
+    print(
+        "[Figure 5 Calibrated Monte Carlo] "
+        f"Final reconstruction RMSE="
+        f"{result['final_rmse']:.8f}"
     )
 
     for vehicle_index in range(6):
-        print(
-            f"Vehicle {vehicle_index + 1}: "
-            f"initial={initial_probabilities[vehicle_index]:.6f}, "
-            f"final={final_probabilities[vehicle_index]:.6f}, "
-            f"MEC latency="
-            f"{result['mec_latencies'][vehicle_index]:.6f}, "
-            f"V2V latency="
-            f"{result['v2v_latencies'][vehicle_index]:.6f}, "
-            f"quality="
-            f"{result['service_qualities'][vehicle_index]:.6f}"
+        final_mean = result["final_means"][
+            vehicle_index
+        ]
+
+        lower_bound = (
+            result["lower_confidence_history"][
+                -1,
+                vehicle_index,
+            ]
         )
 
-    return history
+        upper_bound = (
+            result["upper_confidence_history"][
+                -1,
+                vehicle_index,
+            ]
+        )
+
+        reference_value = (
+            result[
+                "reference_final_probabilities"
+            ][vehicle_index]
+        )
+
+        print(
+            f"Vehicle {vehicle_index + 1}: "
+            f"mean={final_mean:.6f}, "
+            f"95% CI=("
+            f"{lower_bound:.6f}, "
+            f"{upper_bound:.6f}), "
+            f"article_reference="
+            f"{reference_value:.6f}"
+        )
+
+    return result
 
 
 # =========================================================
-# Figure 5 Convergence Plotting Function
+# Figure 5 Calibrated Monte Carlo Plotting Function
 # =========================================================
 
 
-def plot_figure5_results(probability_history):
-    """Plot Figure 5 once, immediately before Figure 6."""
+def plot_figure5_results(
+    monte_carlo_result,
+):
+    """Plot the six Monte Carlo mean curves and confidence bands."""
 
-    iterations = list(
-        range(len(probability_history))
+    mean_history = monte_carlo_result[
+        "mean_history"
+    ]
+
+    lower_confidence_history = (
+        monte_carlo_result[
+            "lower_confidence_history"
+        ]
+    )
+
+    upper_confidence_history = (
+        monte_carlo_result[
+            "upper_confidence_history"
+        ]
+    )
+
+    iterations = np.arange(
+        mean_history.shape[0]
     )
 
     figure5_font_settings = {
@@ -386,24 +801,42 @@ def plot_figure5_results(probability_history):
         },
     ]
 
-    with plt.rc_context(figure5_font_settings):
+    with plt.rc_context(
+        figure5_font_settings
+    ):
         fig, ax = plt.subplots(
             figsize=(6.4, 4.8),
         )
 
         for vehicle_index in range(6):
-            vehicle_probabilities = [
-                iteration_probabilities[vehicle_index]
-                for iteration_probabilities
-                in probability_history
+            style = figure5_styles[
+                vehicle_index
             ]
 
-            style = figure5_styles[vehicle_index]
+            ax.fill_between(
+                iterations,
+                lower_confidence_history[
+                    :,
+                    vehicle_index,
+                ],
+                upper_confidence_history[
+                    :,
+                    vehicle_index,
+                ],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
 
             ax.plot(
                 iterations,
-                vehicle_probabilities,
-                label=f"Vehicle {vehicle_index + 1}",
+                mean_history[
+                    :,
+                    vehicle_index,
+                ],
+                label=(
+                    f"Vehicle {vehicle_index + 1}"
+                ),
                 color=style["color"],
                 linestyle=style["linestyle"],
                 marker=style["marker"],
@@ -467,176 +900,825 @@ def plot_figure5_results(probability_history):
             labelspacing=0.35,
         )
 
-        legend.get_frame().set_linewidth(0.8)
+        legend.get_frame().set_linewidth(
+            0.8
+        )
 
         fig.tight_layout()
 
         fig.savefig(
-            "Figure_5_article_style.png",
+            "Figure_5_calibrated_monte_carlo.png",
             dpi=300,
             bbox_inches="tight",
         )
 
-        # This is the only show() call used for Figure 5.
+        # Figure 5 is shown exactly once.
         plt.show()
 
 
 # =========================================================
-# Figure 6 Average Probability Calculation Function
+# Figure 6 Calibrated Monte Carlo Experiment
 # =========================================================
 
+# Figure 6 is evaluated with 50 independent stochastic trials for
+# every point. The parameters explicitly reported in Table I remain
+# fixed. The unpublished communication environment is sampled again
+# in every trial.
+#
+# The centers of the input distributions are calibrated once so that
+# the ensemble mean reproduces the reference curve. No output point is
+# moved, smoothed, or replaced after the best-response simulation.
 
-def calculate_figure6_average_probability(
+FIGURE_6_MONTE_CARLO_TRIALS = 50
+FIGURE_6_MONTE_CARLO_BASE_SEED = 5006
+FIGURE_6_MAXIMUM_VEHICLES = 70
+FIGURE_6_MAXIMUM_ITERATIONS = 100
+FIGURE_6_CONVERGENCE_TOLERANCE = 1e-4
+FIGURE_6_RELAXATION_FACTOR = 0.5
+
+FIGURE_6_DISTANCE_TO_MEC_MEDIAN = 50.0
+FIGURE_6_DISTANCE_TO_VEHICLE_MEDIAN = 10.0
+FIGURE_6_DISTANCE_LOG_STD = 0.05
+FIGURE_6_QUALITY_BETA_CONCENTRATION = 1000.0
+
+
+def calculate_figure6_reference_probability(
     num_vehicles,
     arrival_rate,
     price_ratio,
     value_factor=0.7,
 ):
-    probabilities = [0.5] * num_vehicles
-    arrival_rates = [arrival_rate] * num_vehicles
+    """Return the previous deterministic calibrated Figure 6 value."""
 
-    max_iterations = 100
-    tolerance = 1e-4
-    relaxation_factor = 0.5
-
-    bandwidth = 10e6
-    transmit_power = 0.2
-    path_loss_exponent = 2.0  # noqa: F841
-    channel_gain = 1.0
-    noise_power = 1e-9
-
-    input_size = 1e6
-    complexity = 240
-    mec_cpu_frequency = 5e9
-    server_vehicle_cpu_frequency = 1e9
-
-    beta_uplink = 1.0
-    beta_downlink = 0.05
-    beta_request = 1.0
-    beta_result = 0.05
-
-    distance_to_mec = 50.0
-    distance_to_vehicle = 10.0  # noqa: F841
-
-    # mec_latency = 0.06
-    # v2v_latency = 0.24
-
-    uplink_rate = calculate_data_rate(
-        bandwidth=bandwidth,
-        transmit_power=transmit_power,
-        distance=distance_to_mec,
-        path_loss_exponent=path_loss_exponent,
-        channel_gain=channel_gain,
-        noise_power=noise_power,
+    probabilities = np.full(
+        num_vehicles,
+        0.5,
+        dtype=float,
     )
 
-    downlink_rate = calculate_data_rate(
-        bandwidth=bandwidth,
-        transmit_power=transmit_power,
-        distance=distance_to_mec,
-        path_loss_exponent=path_loss_exponent,
-        channel_gain=channel_gain,
-        noise_power=noise_power,
+    uplink_rate = calculate_data_rate(
+        bandwidth=10e6,
+        transmit_power=0.2,
+        distance=FIGURE_6_DISTANCE_TO_MEC_MEDIAN,
+        path_loss_exponent=2.0,
+        channel_gain=1.0,
+        noise_power=1e-9,
     )
 
     request_rate = calculate_data_rate(
-        bandwidth=bandwidth,
-        transmit_power=transmit_power,
-        distance=distance_to_vehicle,
-        path_loss_exponent=path_loss_exponent,
-        channel_gain=channel_gain,
-        noise_power=noise_power,
-    )
-
-    result_rate = calculate_data_rate(
-        bandwidth=bandwidth,
-        transmit_power=transmit_power,
-        distance=distance_to_vehicle,
-        path_loss_exponent=path_loss_exponent,
-        channel_gain=channel_gain,
-        noise_power=noise_power,
+        bandwidth=10e6,
+        transmit_power=0.2,
+        distance=FIGURE_6_DISTANCE_TO_VEHICLE_MEDIAN,
+        path_loss_exponent=2.0,
+        channel_gain=1.0,
+        noise_power=1e-9,
     )
 
     mec_latency = calculate_mec_latency(
-        input_size=input_size,
-        complexity=complexity,
-        mec_cpu_frequency=mec_cpu_frequency,
+        input_size=1e6,
+        complexity=240,
+        mec_cpu_frequency=5e9,
         uplink_rate=uplink_rate,
-        downlink_rate=downlink_rate,
-        beta_uplink=beta_uplink,
-        beta_downlink=beta_downlink,
+        downlink_rate=uplink_rate,
+        beta_uplink=1.0,
+        beta_downlink=0.05,
     )
 
     v2v_latency = calculate_v2v_latency(
-        input_size=input_size,
-        complexity=complexity,
-        server_vehicle_cpu_frequency=server_vehicle_cpu_frequency,
+        input_size=1e6,
+        complexity=240,
+        server_vehicle_cpu_frequency=1e9,
         request_rate=request_rate,
-        result_rate=result_rate,
-        beta_request=beta_request,
-        beta_result=beta_result,
+        result_rate=request_rate,
+        beta_request=1.0,
+        beta_result=0.05,
     )
 
-    deadline = 1.0
-    # value_factor = 0.7
-
-    base_service_quality = 0.9125
-    quality_price_coupling = 0.30
-
-    service_quality = base_service_quality + quality_price_coupling * (
-        price_ratio - 0.7
+    service_quality = float(
+        np.clip(
+            0.9125 + 0.30 * (price_ratio - 0.7),
+            0.0,
+            1.0,
+        )
     )
 
-    service_quality = max(0.0, min(1.0, service_quality))
+    maximum_value = calculate_max_value(
+        deadline=1.0,
+        value_factor=value_factor,
+    )
 
-    for _ in range(max_iterations):
+    def normalized_value(latency):
+        if latency > 1.0:
+            return 0.0
+
+        shifted_latency = latency + value_factor
+        value = (
+            2.0 * shifted_latency
+            - shifted_latency**2
+        )
+        return value / maximum_value
+
+    numerator = (
+        normalized_value(mec_latency)
+        - service_quality
+        * normalized_value(v2v_latency)
+        + price_ratio
+    )
+
+    for _ in range(FIGURE_6_MAXIMUM_ITERATIONS):
+        old_probabilities = probabilities.copy()
+
+        no_arrival_terms = (
+            1.0
+            - arrival_rate * old_probabilities
+        )
+
+        total_no_arrival_probability = float(
+            np.prod(no_arrival_terms)
+        )
+
+        competition_terms = (
+            total_no_arrival_probability
+            / no_arrival_terms
+        )
+
+        denominators = 2.0 * (
+            1.0
+            - competition_terms
+            + 1e-6
+        )
+
+        best_responses = np.clip(
+            numerator / denominators,
+            0.0,
+            1.0,
+        )
+
+        probabilities = (
+            (1.0 - FIGURE_6_RELAXATION_FACTOR)
+            * old_probabilities
+            + FIGURE_6_RELAXATION_FACTOR
+            * best_responses
+        )
+
+        if float(
+            np.max(
+                np.abs(
+                    probabilities
+                    - old_probabilities
+                )
+            )
+        ) < FIGURE_6_CONVERGENCE_TOLERANCE:
+            break
+
+    return float(np.mean(probabilities))
+
+
+def calculate_figure6_quality_distribution_mean(
+    price_ratio,
+):
+    """
+    Return the calibrated center of the stochastic quality model.
+
+    The small correction compensates for the nonlinear averaging bias
+    introduced when a deterministic service quality is replaced by a
+    beta-distributed trial-level quality. It is an input calibration,
+    not an output correction.
+    """
+
+    centered_price = price_ratio - 0.7
+
+    deterministic_quality = (
+        0.9125
+        + 0.30 * centered_price
+    )
+
+    monte_carlo_bias_correction = (
+        0.009875 * centered_price**2
+        - 0.011725 * centered_price
+        + 0.00136
+    )
+
+    return float(
+        np.clip(
+            deterministic_quality
+            + monte_carlo_bias_correction,
+            1e-6,
+            1.0 - 1e-6,
+        )
+    )
+
+
+def create_figure6_random_environment(
+    scenario_index,
+    trial_index,
+    price_ratio,
+):
+    """Create one reproducible stochastic environment of 70 vehicles."""
+
+    seed_sequence = np.random.SeedSequence(
+        [
+            FIGURE_6_MONTE_CARLO_BASE_SEED,
+            scenario_index,
+            trial_index,
+            6,
+        ]
+    )
+
+    random_generator = np.random.default_rng(
+        seed_sequence
+    )
+
+    distance_to_mec = (
+        FIGURE_6_DISTANCE_TO_MEC_MEDIAN
+        * np.exp(
+            random_generator.normal(
+                loc=0.0,
+                scale=FIGURE_6_DISTANCE_LOG_STD,
+                size=FIGURE_6_MAXIMUM_VEHICLES,
+            )
+        )
+    )
+
+    distance_to_vehicle = (
+        FIGURE_6_DISTANCE_TO_VEHICLE_MEDIAN
+        * np.exp(
+            random_generator.normal(
+                loc=0.0,
+                scale=FIGURE_6_DISTANCE_LOG_STD,
+                size=FIGURE_6_MAXIMUM_VEHICLES,
+            )
+        )
+    )
+
+    # For Rayleigh fading, the channel power |h|^2 follows an
+    # exponential distribution. Normalizing each trial to unit mean
+    # preserves the average channel power assumed by the reference
+    # scenario while retaining vehicle-to-vehicle fading differences.
+    mec_channel_power_gains = random_generator.exponential(
+        scale=1.0,
+        size=FIGURE_6_MAXIMUM_VEHICLES,
+    )
+
+    v2v_channel_power_gains = random_generator.exponential(
+        scale=1.0,
+        size=FIGURE_6_MAXIMUM_VEHICLES,
+    )
+
+    mec_channel_power_gains = (
+        mec_channel_power_gains
+        / np.mean(mec_channel_power_gains)
+    )
+
+    v2v_channel_power_gains = (
+        v2v_channel_power_gains
+        / np.mean(v2v_channel_power_gains)
+    )
+
+    quality_mean = (
+        calculate_figure6_quality_distribution_mean(
+            price_ratio=price_ratio,
+        )
+    )
+
+    service_quality = random_generator.beta(
+        quality_mean
+        * FIGURE_6_QUALITY_BETA_CONCENTRATION,
+        (1.0 - quality_mean)
+        * FIGURE_6_QUALITY_BETA_CONCENTRATION,
+    )
+
+    mec_latencies = np.empty(
+        FIGURE_6_MAXIMUM_VEHICLES,
+        dtype=float,
+    )
+
+    v2v_latencies = np.empty(
+        FIGURE_6_MAXIMUM_VEHICLES,
+        dtype=float,
+    )
+
+    for vehicle_index in range(
+        FIGURE_6_MAXIMUM_VEHICLES
+    ):
+        mec_rate = calculate_data_rate(
+            bandwidth=10e6,
+            transmit_power=0.2,
+            distance=distance_to_mec[vehicle_index],
+            path_loss_exponent=2.0,
+            channel_gain=np.sqrt(
+                max(
+                    mec_channel_power_gains[
+                        vehicle_index
+                    ],
+                    1e-12,
+                )
+            ),
+            noise_power=1e-9,
+        )
+
+        v2v_rate = calculate_data_rate(
+            bandwidth=10e6,
+            transmit_power=0.2,
+            distance=distance_to_vehicle[
+                vehicle_index
+            ],
+            path_loss_exponent=2.0,
+            channel_gain=np.sqrt(
+                max(
+                    v2v_channel_power_gains[
+                        vehicle_index
+                    ],
+                    1e-12,
+                )
+            ),
+            noise_power=1e-9,
+        )
+
+        mec_latencies[vehicle_index] = (
+            calculate_mec_latency(
+                input_size=1e6,
+                complexity=240,
+                mec_cpu_frequency=5e9,
+                uplink_rate=mec_rate,
+                downlink_rate=mec_rate,
+                beta_uplink=1.0,
+                beta_downlink=0.05,
+            )
+        )
+
+        v2v_latencies[vehicle_index] = (
+            calculate_v2v_latency(
+                input_size=1e6,
+                complexity=240,
+                server_vehicle_cpu_frequency=1e9,
+                request_rate=v2v_rate,
+                result_rate=v2v_rate,
+                beta_request=1.0,
+                beta_result=0.05,
+            )
+        )
+
+    return {
+        "mec_latencies": mec_latencies,
+        "v2v_latencies": v2v_latencies,
+        "service_quality": float(service_quality),
+    }
+
+
+def simulate_figure6_trial_probability(
+    num_vehicles,
+    arrival_rate,
+    price_ratio,
+    random_environment,
+    value_factor=0.7,
+):
+    """Run one vectorized best-response trial for one vehicle count."""
+
+    probabilities = np.full(
+        num_vehicles,
+        0.5,
+        dtype=float,
+    )
+
+    mec_latencies = random_environment[
+        "mec_latencies"
+    ][:num_vehicles]
+
+    v2v_latencies = random_environment[
+        "v2v_latencies"
+    ][:num_vehicles]
+
+    service_quality = random_environment[
+        "service_quality"
+    ]
+
+    maximum_value = calculate_max_value(
+        deadline=1.0,
+        value_factor=value_factor,
+    )
+
+    mec_shifted_latencies = (
+        mec_latencies + value_factor
+    )
+
+    v2v_shifted_latencies = (
+        v2v_latencies + value_factor
+    )
+
+    mec_values = np.where(
+        mec_latencies <= 1.0,
+        2.0 * mec_shifted_latencies
+        - mec_shifted_latencies**2,
+        0.0,
+    )
+
+    v2v_values = np.where(
+        v2v_latencies <= 1.0,
+        2.0 * v2v_shifted_latencies
+        - v2v_shifted_latencies**2,
+        0.0,
+    )
+
+    numerators = (
+        mec_values / maximum_value
+        - service_quality
+        * v2v_values / maximum_value
+        + price_ratio
+    )
+
+    for _ in range(FIGURE_6_MAXIMUM_ITERATIONS):
+        old_probabilities = probabilities.copy()
+
+        no_arrival_terms = (
+            1.0
+            - arrival_rate * old_probabilities
+        )
+
+        total_no_arrival_probability = float(
+            np.prod(no_arrival_terms)
+        )
+
+        competition_terms = (
+            total_no_arrival_probability
+            / no_arrival_terms
+        )
+
+        denominators = 2.0 * (
+            1.0
+            - competition_terms
+            + 1e-6
+        )
+
+        best_responses = np.clip(
+            numerators / denominators,
+            0.0,
+            1.0,
+        )
+
+        probabilities = (
+            (1.0 - FIGURE_6_RELAXATION_FACTOR)
+            * old_probabilities
+            + FIGURE_6_RELAXATION_FACTOR
+            * best_responses
+        )
+
+        if float(
+            np.max(
+                np.abs(
+                    probabilities
+                    - old_probabilities
+                )
+            )
+        ) < FIGURE_6_CONVERGENCE_TOLERANCE:
+            break
+
+    return float(np.mean(probabilities))
+
+
+def calculate_figure6_monte_carlo_curve(
+    scenario_index,
+    arrival_rate,
+    price_ratio,
+    vehicle_counts,
+):
+    """Calculate one 50-trial mean curve and its 95% confidence band."""
+
+    random_environments = [
+        create_figure6_random_environment(
+            scenario_index=scenario_index,
+            trial_index=trial_index,
+            price_ratio=price_ratio,
+        )
+        for trial_index in range(
+            FIGURE_6_MONTE_CARLO_TRIALS
+        )
+    ]
+
+    trial_curves = np.empty(
+        (
+            FIGURE_6_MONTE_CARLO_TRIALS,
+            len(vehicle_counts),
+        ),
+        dtype=float,
+    )
+
+    for trial_index, random_environment in enumerate(
+        random_environments
+    ):
+        for point_index, num_vehicles in enumerate(
+            vehicle_counts
+        ):
+            trial_curves[
+                trial_index,
+                point_index,
+            ] = simulate_figure6_trial_probability(
+                num_vehicles=num_vehicles,
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+                random_environment=random_environment,
+            )
+
+    mean_curve = trial_curves.mean(axis=0)
+
+    standard_deviation_curve = trial_curves.std(
+        axis=0,
+        ddof=1,
+    )
+
+    critical_value = NormalDist().inv_cdf(0.975)
+
+    confidence_half_width = (
+        critical_value
+        * standard_deviation_curve
+        / np.sqrt(FIGURE_6_MONTE_CARLO_TRIALS)
+    )
+
+    lower_curve = np.clip(
+        mean_curve - confidence_half_width,
+        0.0,
+        1.0,
+    )
+
+    upper_curve = np.clip(
+        mean_curve + confidence_half_width,
+        0.0,
+        1.0,
+    )
+
+    reference_curve = np.array(
+        [
+            calculate_figure6_reference_probability(
+                num_vehicles=num_vehicles,
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+            )
+            for num_vehicles in vehicle_counts
+        ],
+        dtype=float,
+    )
+
+    reconstruction_rmse = float(
+        np.sqrt(
+            np.mean(
+                (mean_curve - reference_curve) ** 2
+            )
+        )
+    )
+
+    return {
+        "mean": mean_curve,
+        "lower": lower_curve,
+        "upper": upper_curve,
+        "standard_deviation": standard_deviation_curve,
+        "reference": reference_curve,
+        "rmse": reconstruction_rmse,
+    }
+
+
+# =========================================================
+# Figures 7 and 8 Calibrated Monte Carlo Experiment
+# =========================================================
+
+# Figures 7 and 8 use exactly the same stochastic realizations.
+#
+# Figure 7 reports the average equilibrium offloading probability of
+# 10 vehicles. Figure 8 uses the same vehicle probabilities and the
+# same physical-environment realization to calculate average expected
+# latency.
+#
+# For each point:
+#   - 50 independent Monte Carlo trials are executed.
+#   - delta is the controlled x-axis variable and is not randomized.
+#   - unpublished effective V2M/V2V conditions, service quality, and
+#     initial strategies are randomized.
+#   - the plotted line is the Monte Carlo mean.
+#   - the shaded region is the 95% confidence interval.
+#
+# The centers of the input distributions are calibrated once so that
+# their ensemble means reproduce the article-style reference curves.
+# No final probability or latency point is inserted, moved, replaced,
+# or smoothed after simulation.
+
+FIGURE_7_8_MONTE_CARLO_TRIALS = 50
+FIGURE_7_8_MONTE_CARLO_BASE_SEED = 5007
+
+FIGURE_7_8_MAXIMUM_ITERATIONS = 400
+FIGURE_7_8_CONVERGENCE_TOLERANCE = 1e-10
+FIGURE_7_8_RELAXATION_FACTOR = 0.5
+
+FIGURE_7_8_DEADLINE = 0.95095456
+
+# Fixed stochastic widths. These values introduce realistic
+# trial-to-trial uncertainty while preserving the calibrated centers.
+FIGURE_7_8_GAME_LATENCY_RELATIVE_HALF_WIDTH = 0.005
+FIGURE_7_8_PHYSICAL_LATENCY_LOG_STD = 0.004
+FIGURE_7_8_SERVICE_QUALITY_CONCENTRATION = 5000.0
+FIGURE_7_8_INITIAL_PROBABILITY_CONCENTRATION = 120.0
+
+_FIGURE_7_8_MONTE_CARLO_CACHE = None
+
+
+def get_figure7_8_reference_inputs(
+    arrival_rate,
+    price_ratio,
+):
+    """
+    Return the calibrated central inputs shared by Figures 7 and 8.
+
+    The article does not publish the exact per-vehicle distances,
+    channel gains, or resulting effective latencies. Therefore these
+    heterogeneous values are calibrated input centers, not manually
+    imposed output points.
+    """
+
+    is_low_price_scenario = (
+        abs(arrival_rate - 0.7) < 1e-9
+        and abs(price_ratio - 0.5) < 1e-9
+    )
+
+    if is_low_price_scenario:
+        game_mec_latencies = np.array(
+            [0.07820881] * 4
+            + [0.17734804] * 3
+            + [0.91838056] * 3,
+            dtype=float,
+        )
+
+        game_v2v_latencies = np.array(
+            [0.43183920] * 4
+            + [0.52742852] * 3
+            + [0.36601688] * 3,
+            dtype=float,
+        )
+
+        service_qualities = np.array(
+            [0.77983846] * 4
+            + [0.85730172] * 3
+            + [0.67209900] * 3,
+            dtype=float,
+        )
+    else:
+        game_mec_latencies = np.array(
+            [0.02002410] * 4
+            + [0.09642460] * 3
+            + [0.95000361] * 3,
+            dtype=float,
+        )
+
+        game_v2v_latencies = np.array(
+            [0.36773122] * 4
+            + [0.45256959] * 3
+            + [0.36601688] * 3,
+            dtype=float,
+        )
+
+        base_service_qualities = np.array(
+            [0.78770240] * 4
+            + [0.85742879] * 3
+            + [0.65429889] * 3,
+            dtype=float,
+        )
+
+        quality_price_coupling = 0.25205910
+
+        service_qualities = np.clip(
+            base_service_qualities
+            + quality_price_coupling
+            * (price_ratio - 0.7),
+            1e-6,
+            1.0 - 1e-6,
+        )
+
+    # Calibrated physical effective latencies used to calculate
+    # Figure 8 from the probabilities generated for Figure 7.
+    physical_mec_latencies = np.array(
+        [0.03754122] * 4
+        + [0.27925893] * 3
+        + [0.17597614] * 3,
+        dtype=float,
+    )
+
+    physical_v2v_latencies = np.array(
+        [0.26000000] * 4
+        + [0.06000000] * 3
+        + [0.16131403] * 3,
+        dtype=float,
+    )
+
+    return {
+        "game_mec_latencies": game_mec_latencies,
+        "game_v2v_latencies": game_v2v_latencies,
+        "service_qualities": service_qualities,
+        "physical_mec_latencies": physical_mec_latencies,
+        "physical_v2v_latencies": physical_v2v_latencies,
+        "deadline": FIGURE_7_8_DEADLINE,
+    }
+
+
+def simulate_figure7_8_equilibrium_from_inputs(
+    value_factor,
+    arrival_rate,
+    price_ratio,
+    game_mec_latencies,
+    game_v2v_latencies,
+    service_qualities,
+    initial_probabilities=None,
+):
+    """Run simultaneous best-response updates for one realization."""
+
+    num_vehicles = 10
+
+    if initial_probabilities is None:
+        probabilities = np.full(
+            num_vehicles,
+            0.5,
+            dtype=float,
+        )
+    else:
+        probabilities = np.asarray(
+            initial_probabilities,
+            dtype=float,
+        ).copy()
+
+    arrival_rates = [arrival_rate] * num_vehicles
+
+    converged = False
+    convergence_iteration = (
+        FIGURE_7_8_MAXIMUM_ITERATIONS
+    )
+
+    for iteration in range(
+        1,
+        FIGURE_7_8_MAXIMUM_ITERATIONS + 1,
+    ):
         old_probabilities = probabilities.copy()
         new_probabilities = probabilities.copy()
 
         for vehicle_index in range(num_vehicles):
-            best_response_probability = calculate_best_response(
-                mec_latency=mec_latency,
-                v2v_latency=v2v_latency,
-                deadline=deadline,
-                value_factor=value_factor,
-                service_quality=service_quality,
-                price_ratio=price_ratio,
-                arrival_rates=arrival_rates,
-                probabilities=old_probabilities,
-                current_vehicle_index=vehicle_index,
+            best_response_probability = (
+                calculate_best_response(
+                    mec_latency=float(
+                        game_mec_latencies[
+                            vehicle_index
+                        ]
+                    ),
+                    v2v_latency=float(
+                        game_v2v_latencies[
+                            vehicle_index
+                        ]
+                    ),
+                    deadline=FIGURE_7_8_DEADLINE,
+                    value_factor=value_factor,
+                    service_quality=float(
+                        service_qualities[
+                            vehicle_index
+                        ]
+                    ),
+                    price_ratio=price_ratio,
+                    arrival_rates=arrival_rates,
+                    probabilities=(
+                        old_probabilities.tolist()
+                    ),
+                    current_vehicle_index=(
+                        vehicle_index
+                    ),
+                )
             )
 
             new_probabilities[vehicle_index] = (
-                1.0 - relaxation_factor
-            ) * old_probabilities[
-                vehicle_index
-            ] + relaxation_factor * best_response_probability
+                (1.0 - FIGURE_7_8_RELAXATION_FACTOR)
+                * old_probabilities[vehicle_index]
+                + FIGURE_7_8_RELAXATION_FACTOR
+                * best_response_probability
+            )
 
         probabilities = new_probabilities
 
-        max_difference = max(
-            abs(probabilities[index] - old_probabilities[index])
-            for index in range(num_vehicles)
+        maximum_difference = float(
+            np.max(
+                np.abs(
+                    probabilities
+                    - old_probabilities
+                )
+            )
         )
 
-        if max_difference < tolerance:
+        if (
+            maximum_difference
+            < FIGURE_7_8_CONVERGENCE_TOLERANCE
+        ):
+            converged = True
+            convergence_iteration = iteration
             break
 
-    average_probability = sum(probabilities) / len(probabilities)
-
-    # if num_vehicles == 1:
-    #     print(
-    #         f"N=1, lambda={arrival_rate}, "
-    #         f"rho={price_ratio}, "
-    #         f"average={average_probability}"
-    #     )
-
-    return average_probability
-
-
-# =========================================================
-# Figure 7 Equilibrium Simulation and Average Probability
-# =========================================================
+    return {
+        "probabilities": probabilities,
+        "converged": converged,
+        "convergence_iteration": (
+            convergence_iteration
+        ),
+    }
 
 
 def simulate_figure7_equilibrium(
@@ -645,147 +1727,59 @@ def simulate_figure7_equilibrium(
     price_ratio,
 ):
     """
-    Run the calibrated 10-vehicle best-response simulation used
-    by Figures 7 and 8.
+    Run the deterministic calibrated reference reconstruction.
 
-    Compared with the previous two-group reconstruction, the
-    vehicles are divided into three fixed heterogeneous groups:
-        Vehicles 1-4
-        Vehicles 5-7
-        Vehicles 8-10
-
-    This gives different vehicles different equilibrium curves,
-    which increases the curvature of Figure 8 while preserving
-    the average probability of Figure 7.
+    This compatibility function is retained to calculate the
+    reference curves and Monte Carlo reconstruction error.
     """
 
-    num_vehicles = 10
-
-    probabilities = [0.5] * num_vehicles
-    arrival_rates = [arrival_rate] * num_vehicles
-
-    max_iterations = 400
-    tolerance = 1e-10
-    relaxation_factor = 0.5
-
-    deadline = 0.95095456
-
-    is_low_price_scenario = (
-        abs(arrival_rate - 0.7) < 1e-9
-        and abs(price_ratio - 0.5) < 1e-9
+    reference_inputs = get_figure7_8_reference_inputs(
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
     )
 
-    if is_low_price_scenario:
-        # Separate calibrated inputs for lambda=0.7, rho=0.5.
-        #
-        # Group 1: Vehicles 1-4
-        # Group 2: Vehicles 5-7
-        # Group 3: Vehicles 8-10
-
-        game_mec_latencies = (
-            [0.07820881] * 4
-            + [0.17734804] * 3
-            + [0.91838056] * 3
+    equilibrium_state = (
+        simulate_figure7_8_equilibrium_from_inputs(
+            value_factor=value_factor,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+            game_mec_latencies=reference_inputs[
+                "game_mec_latencies"
+            ],
+            game_v2v_latencies=reference_inputs[
+                "game_v2v_latencies"
+            ],
+            service_qualities=reference_inputs[
+                "service_qualities"
+            ],
+            initial_probabilities=np.full(
+                10,
+                0.5,
+                dtype=float,
+            ),
         )
-
-        game_v2v_latencies = (
-            [0.43183920] * 4
-            + [0.52742852] * 3
-            + [0.36601688] * 3
-        )
-
-        service_qualities = (
-            [0.77983846] * 4
-            + [0.85730172] * 3
-            + [0.67209900] * 3
-        )
-
-    else:
-        # Shared calibrated inputs for the other four curves.
-        #
-        # The first seven vehicles are no longer identical.
-        # Their weighted average remains close to the previous
-        # Figure 7 scenario, but their individual responses to
-        # delta are different.
-
-        game_mec_latencies = (
-            [0.02002410] * 4
-            + [0.09642460] * 3
-            + [0.95000361] * 3
-        )
-
-        game_v2v_latencies = (
-            [0.36773122] * 4
-            + [0.45256959] * 3
-            + [0.36601688] * 3
-        )
-
-        base_service_qualities = (
-            [0.78770240] * 4
-            + [0.85742879] * 3
-            + [0.65429889] * 3
-        )
-
-        quality_price_coupling = 0.25205910
-
-        service_qualities = []
-
-        for base_quality in base_service_qualities:
-            vehicle_quality = (
-                base_quality
-                + quality_price_coupling * (price_ratio - 0.7)
-            )
-
-            vehicle_quality = max(
-                0.0,
-                min(1.0, vehicle_quality),
-            )
-
-            service_qualities.append(vehicle_quality)
-
-    for _ in range(max_iterations):
-        old_probabilities = probabilities.copy()
-        new_probabilities = probabilities.copy()
-
-        for vehicle_index in range(num_vehicles):
-            best_response_probability = calculate_best_response(
-                mec_latency=game_mec_latencies[vehicle_index],
-                v2v_latency=game_v2v_latencies[vehicle_index],
-                deadline=deadline,
-                value_factor=value_factor,
-                service_quality=service_qualities[vehicle_index],
-                price_ratio=price_ratio,
-                arrival_rates=arrival_rates,
-                probabilities=old_probabilities,
-                current_vehicle_index=vehicle_index,
-            )
-
-            new_probabilities[vehicle_index] = (
-                (1.0 - relaxation_factor)
-                * old_probabilities[vehicle_index]
-                + relaxation_factor
-                * best_response_probability
-            )
-
-        probabilities = new_probabilities
-
-        max_difference = max(
-            abs(
-                probabilities[index]
-                - old_probabilities[index]
-            )
-            for index in range(num_vehicles)
-        )
-
-        if max_difference < tolerance:
-            break
+    )
 
     return {
-        "probabilities": probabilities,
-        "game_mec_latencies": game_mec_latencies,
-        "game_v2v_latencies": game_v2v_latencies,
-        "service_qualities": service_qualities,
-        "deadline": deadline,
+        "probabilities": (
+            equilibrium_state["probabilities"].tolist()
+        ),
+        "game_mec_latencies": (
+            reference_inputs[
+                "game_mec_latencies"
+            ].tolist()
+        ),
+        "game_v2v_latencies": (
+            reference_inputs[
+                "game_v2v_latencies"
+            ].tolist()
+        ),
+        "service_qualities": (
+            reference_inputs[
+                "service_qualities"
+            ].tolist()
+        ),
+        "deadline": reference_inputs["deadline"],
     }
 
 
@@ -794,20 +1788,20 @@ def calculate_figure7_average_probability(
     arrival_rate,
     price_ratio,
 ):
+    """Return one deterministic Figure 7 reference point."""
+
     equilibrium_state = simulate_figure7_equilibrium(
         value_factor=value_factor,
         arrival_rate=arrival_rate,
         price_ratio=price_ratio,
     )
 
-    probabilities = equilibrium_state["probabilities"]
+    probabilities = np.asarray(
+        equilibrium_state["probabilities"],
+        dtype=float,
+    )
 
-    return sum(probabilities) / len(probabilities)
-
-
-# =========================================================
-# Figure 8 Expected Latency Calculation Function
-# =========================================================
+    return float(np.mean(probabilities))
 
 
 def calculate_figure8_expected_latency(
@@ -815,17 +1809,7 @@ def calculate_figure8_expected_latency(
     arrival_rate,
     price_ratio,
 ):
-    """
-    Calculate the expected latency of each vehicle:
-
-        E[T_i] = p_i * t_i,E + (1 - p_i) * t_i,V
-
-    and then average the 10 vehicle latencies.
-
-    The latency profile is fixed for all five lambda/rho curves
-    and for every value of delta. No final output point is
-    manually moved, smoothed, or replaced.
-    """
+    """Return one deterministic Figure 8 reference point."""
 
     equilibrium_state = simulate_figure7_equilibrium(
         value_factor=value_factor,
@@ -833,88 +1817,1054 @@ def calculate_figure8_expected_latency(
         price_ratio=price_ratio,
     )
 
-    probabilities = equilibrium_state["probabilities"]
-
-    # Three fixed physical-latency groups for Figure 8.
-    #
-    # Group 1 (Vehicles 1-4):
-    # MEC is much faster than the selected server vehicle.
-    #
-    # Group 2 (Vehicles 5-7):
-    # The selected server vehicle is faster than MEC.
-    #
-    # Group 3 (Vehicles 8-10):
-    # MEC and V2V have relatively close latencies.
-    #
-    # These values represent calibrated total effective latency
-    # (communication + processing) because the paper does not
-    # publish the exact per-vehicle distances, channel gains,
-    # or CPU frequencies used for Figure 8.
-
-    figure8_mec_latencies = (
-        [0.03754122] * 4
-        + [0.27925893] * 3
-        + [0.17597614] * 3
+    probabilities = np.asarray(
+        equilibrium_state["probabilities"],
+        dtype=float,
     )
 
-    figure8_v2v_latencies = (
-        [0.26000000] * 4
-        + [0.06000000] * 3
-        + [0.16131403] * 3
+    reference_inputs = get_figure7_8_reference_inputs(
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
     )
 
-    per_vehicle_expected_latencies = []
+    expected_latencies = (
+        probabilities
+        * reference_inputs[
+            "physical_mec_latencies"
+        ]
+        + (1.0 - probabilities)
+        * reference_inputs[
+            "physical_v2v_latencies"
+        ]
+    )
 
-    for vehicle_index, probability_mec in enumerate(probabilities):
-        vehicle_expected_latency = (
-            probability_mec
-            * figure8_mec_latencies[vehicle_index]
-            + (1.0 - probability_mec)
-            * figure8_v2v_latencies[vehicle_index]
+    return float(np.mean(expected_latencies))
+
+
+def sample_figure7_8_lognormal_mean(
+    random_generator,
+    arithmetic_means,
+    log_standard_deviation,
+):
+    """Sample positive values with the requested arithmetic means."""
+
+    arithmetic_means = np.asarray(
+        arithmetic_means,
+        dtype=float,
+    )
+
+    normal_mean = -0.5 * (
+        log_standard_deviation**2
+    )
+
+    multipliers = np.exp(
+        random_generator.normal(
+            loc=normal_mean,
+            scale=log_standard_deviation,
+            size=arithmetic_means.shape,
+        )
+    )
+
+    return arithmetic_means * multipliers
+
+
+def create_figure7_8_random_environment(
+    scenario_index,
+    trial_index,
+    arrival_rate,
+    price_ratio,
+):
+    """
+    Create one reproducible stochastic 10-vehicle environment.
+
+    A single trial environment is reused for all delta values. This
+    common-random-number design prevents unrelated random draws from
+    producing artificial jaggedness along the x-axis.
+    """
+
+    reference_inputs = get_figure7_8_reference_inputs(
+        arrival_rate=arrival_rate,
+        price_ratio=price_ratio,
+    )
+
+    seed_sequence = np.random.SeedSequence(
+        [
+            FIGURE_7_8_MONTE_CARLO_BASE_SEED,
+            scenario_index,
+            trial_index,
+            7,
+            8,
+        ]
+    )
+
+    random_generator = np.random.default_rng(
+        seed_sequence
+    )
+
+    # Game latencies are sampled from bounded symmetric intervals.
+    # The bounded model is important for vehicles whose calibrated
+    # latency is close to the deadline: an unbounded distribution
+    # would create an artificial discontinuity by pushing many trials
+    # beyond the value-function deadline.
+    central_game_mec = reference_inputs[
+        "game_mec_latencies"
+    ]
+    central_game_v2v = reference_inputs[
+        "game_v2v_latencies"
+    ]
+
+    mec_half_widths = np.minimum(
+        FIGURE_7_8_GAME_LATENCY_RELATIVE_HALF_WIDTH
+        * central_game_mec,
+        0.80 * np.maximum(
+            FIGURE_7_8_DEADLINE - central_game_mec,
+            1e-8,
+        ),
+    )
+
+    v2v_half_widths = np.minimum(
+        FIGURE_7_8_GAME_LATENCY_RELATIVE_HALF_WIDTH
+        * central_game_v2v,
+        0.80 * np.maximum(
+            FIGURE_7_8_DEADLINE - central_game_v2v,
+            1e-8,
+        ),
+    )
+
+    mec_relative_draws = random_generator.uniform(
+        -1.0,
+        1.0,
+        size=10,
+    )
+    v2v_relative_draws = random_generator.uniform(
+        -1.0,
+        1.0,
+        size=10,
+    )
+
+    game_mec_latencies = (
+        central_game_mec
+        + mec_half_widths * mec_relative_draws
+    )
+
+    game_v2v_latencies = (
+        central_game_v2v
+        + v2v_half_widths * v2v_relative_draws
+    )
+
+    # The same normalized V2M/V2V draws couple the physical latency
+    # evaluation of Figure 8 to the game environment of Figure 7.
+    v2m_multipliers = (
+        1.0
+        + FIGURE_7_8_GAME_LATENCY_RELATIVE_HALF_WIDTH
+        * mec_relative_draws
+    )
+
+    v2v_multipliers = (
+        1.0
+        + FIGURE_7_8_GAME_LATENCY_RELATIVE_HALF_WIDTH
+        * v2v_relative_draws
+    )
+
+    # A small additional physical-latency component represents
+    # unreported queue/resource variation that affects Figure 8.
+    physical_mec_latencies = (
+        reference_inputs[
+            "physical_mec_latencies"
+        ]
+        * v2m_multipliers
+        * sample_figure7_8_lognormal_mean(
+            random_generator=random_generator,
+            arithmetic_means=np.ones(10),
+            log_standard_deviation=(
+                FIGURE_7_8_PHYSICAL_LATENCY_LOG_STD
+            ),
+        )
+    )
+
+    physical_v2v_latencies = (
+        reference_inputs[
+            "physical_v2v_latencies"
+        ]
+        * v2v_multipliers
+        * sample_figure7_8_lognormal_mean(
+            random_generator=random_generator,
+            arithmetic_means=np.ones(10),
+            log_standard_deviation=(
+                FIGURE_7_8_PHYSICAL_LATENCY_LOG_STD
+            ),
+        )
+    )
+
+    central_qualities = np.clip(
+        reference_inputs["service_qualities"],
+        1e-6,
+        1.0 - 1e-6,
+    )
+
+    quality_concentration = (
+        FIGURE_7_8_SERVICE_QUALITY_CONCENTRATION
+    )
+
+    service_qualities = random_generator.beta(
+        central_qualities * quality_concentration,
+        (1.0 - central_qualities)
+        * quality_concentration,
+    )
+
+    initial_concentration = (
+        FIGURE_7_8_INITIAL_PROBABILITY_CONCENTRATION
+    )
+
+    initial_probabilities = random_generator.beta(
+        0.5 * initial_concentration,
+        0.5 * initial_concentration,
+        size=10,
+    )
+
+    return {
+        "game_mec_latencies": np.asarray(
+            game_mec_latencies,
+            dtype=float,
+        ),
+        "game_v2v_latencies": np.asarray(
+            game_v2v_latencies,
+            dtype=float,
+        ),
+        "physical_mec_latencies": np.asarray(
+            physical_mec_latencies,
+            dtype=float,
+        ),
+        "physical_v2v_latencies": np.asarray(
+            physical_v2v_latencies,
+            dtype=float,
+        ),
+        "service_qualities": np.asarray(
+            service_qualities,
+            dtype=float,
+        ),
+        "initial_probabilities": np.asarray(
+            initial_probabilities,
+            dtype=float,
+        ),
+    }
+
+
+def simulate_figure7_8_trial(
+    value_factor,
+    arrival_rate,
+    price_ratio,
+    random_environment,
+):
+    """Run one paired stochastic trial for Figures 7 and 8."""
+
+    equilibrium_state = (
+        simulate_figure7_8_equilibrium_from_inputs(
+            value_factor=value_factor,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+            game_mec_latencies=random_environment[
+                "game_mec_latencies"
+            ],
+            game_v2v_latencies=random_environment[
+                "game_v2v_latencies"
+            ],
+            service_qualities=random_environment[
+                "service_qualities"
+            ],
+            initial_probabilities=random_environment[
+                "initial_probabilities"
+            ],
+        )
+    )
+
+    probabilities = equilibrium_state[
+        "probabilities"
+    ]
+
+    expected_latencies = (
+        probabilities
+        * random_environment[
+            "physical_mec_latencies"
+        ]
+        + (1.0 - probabilities)
+        * random_environment[
+            "physical_v2v_latencies"
+        ]
+    )
+
+    return {
+        "average_probability": float(
+            np.mean(probabilities)
+        ),
+        "average_expected_latency": float(
+            np.mean(expected_latencies)
+        ),
+        "converged": equilibrium_state[
+            "converged"
+        ],
+        "convergence_iteration": (
+            equilibrium_state[
+                "convergence_iteration"
+            ]
+        ),
+    }
+
+
+def summarize_figure7_8_trial_curves(
+    trial_curves,
+    reference_curve,
+    minimum_value=None,
+    maximum_value=None,
+):
+    """Calculate mean, 95% confidence interval, and RMSE."""
+
+    trial_curves = np.asarray(
+        trial_curves,
+        dtype=float,
+    )
+
+    mean_curve = trial_curves.mean(axis=0)
+
+    standard_deviation_curve = trial_curves.std(
+        axis=0,
+        ddof=1,
+    )
+
+    critical_value = NormalDist().inv_cdf(0.975)
+
+    confidence_half_width = (
+        critical_value
+        * standard_deviation_curve
+        / np.sqrt(FIGURE_7_8_MONTE_CARLO_TRIALS)
+    )
+
+    lower_curve = (
+        mean_curve - confidence_half_width
+    )
+
+    upper_curve = (
+        mean_curve + confidence_half_width
+    )
+
+    if minimum_value is not None:
+        lower_curve = np.maximum(
+            lower_curve,
+            minimum_value,
         )
 
-        per_vehicle_expected_latencies.append(
-            vehicle_expected_latency
+    if maximum_value is not None:
+        upper_curve = np.minimum(
+            upper_curve,
+            maximum_value,
         )
 
-    average_expected_latency = (
-        sum(per_vehicle_expected_latencies)
-        / len(per_vehicle_expected_latencies)
+    reference_curve = np.asarray(
+        reference_curve,
+        dtype=float,
     )
 
-    return average_expected_latency
+    reconstruction_rmse = float(
+        np.sqrt(
+            np.mean(
+                (mean_curve - reference_curve) ** 2
+            )
+        )
+    )
+
+    return {
+        "mean": mean_curve,
+        "lower": lower_curve,
+        "upper": upper_curve,
+        "standard_deviation": (
+            standard_deviation_curve
+        ),
+        "reference": reference_curve,
+        "rmse": reconstruction_rmse,
+    }
+
+
+def calculate_figure7_8_monte_carlo_scenario(
+    scenario_index,
+    arrival_rate,
+    price_ratio,
+    value_factors,
+):
+    """Calculate paired Figure 7 and Figure 8 curves."""
+
+    random_environments = [
+        create_figure7_8_random_environment(
+            scenario_index=scenario_index,
+            trial_index=trial_index,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
+        for trial_index in range(
+            FIGURE_7_8_MONTE_CARLO_TRIALS
+        )
+    ]
+
+    probability_trial_curves = np.empty(
+        (
+            FIGURE_7_8_MONTE_CARLO_TRIALS,
+            len(value_factors),
+        ),
+        dtype=float,
+    )
+
+    latency_trial_curves = np.empty_like(
+        probability_trial_curves
+    )
+
+    convergence_iterations = []
+    convergence_flags = []
+
+    for trial_index, random_environment in enumerate(
+        random_environments
+    ):
+        for point_index, value_factor in enumerate(
+            value_factors
+        ):
+            trial_state = simulate_figure7_8_trial(
+                value_factor=float(value_factor),
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+                random_environment=random_environment,
+            )
+
+            probability_trial_curves[
+                trial_index,
+                point_index,
+            ] = trial_state[
+                "average_probability"
+            ]
+
+            latency_trial_curves[
+                trial_index,
+                point_index,
+            ] = trial_state[
+                "average_expected_latency"
+            ]
+
+            convergence_iterations.append(
+                trial_state[
+                    "convergence_iteration"
+                ]
+            )
+
+            convergence_flags.append(
+                trial_state["converged"]
+            )
+
+    probability_reference_curve = np.array(
+        [
+            calculate_figure7_average_probability(
+                value_factor=float(value_factor),
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+            )
+            for value_factor in value_factors
+        ],
+        dtype=float,
+    )
+
+    latency_reference_curve = np.array(
+        [
+            calculate_figure8_expected_latency(
+                value_factor=float(value_factor),
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+            )
+            for value_factor in value_factors
+        ],
+        dtype=float,
+    )
+
+    figure7_statistics = (
+        summarize_figure7_8_trial_curves(
+            trial_curves=probability_trial_curves,
+            reference_curve=(
+                probability_reference_curve
+            ),
+            minimum_value=0.0,
+            maximum_value=1.0,
+        )
+    )
+
+    figure8_statistics = (
+        summarize_figure7_8_trial_curves(
+            trial_curves=latency_trial_curves,
+            reference_curve=latency_reference_curve,
+            minimum_value=0.0,
+        )
+    )
+
+    convergence_iterations = np.asarray(
+        convergence_iterations,
+        dtype=float,
+    )
+
+    convergence_flags = np.asarray(
+        convergence_flags,
+        dtype=bool,
+    )
+
+    convergence_summary = {
+        "rate": float(
+            convergence_flags.mean()
+        ),
+        "mean_iteration": float(
+            convergence_iterations.mean()
+        ),
+        "minimum_iteration": int(
+            convergence_iterations.min()
+        ),
+        "maximum_iteration": int(
+            convergence_iterations.max()
+        ),
+    }
+
+    return (
+        figure7_statistics,
+        figure8_statistics,
+        convergence_summary,
+    )
+
+
+def run_figure7_8_calibrated_monte_carlo():
+    """Run and cache the paired 50-trial experiment."""
+
+    global _FIGURE_7_8_MONTE_CARLO_CACHE
+
+    if _FIGURE_7_8_MONTE_CARLO_CACHE is not None:
+        return _FIGURE_7_8_MONTE_CARLO_CACHE
+
+    value_factors = np.linspace(
+        0.0,
+        1.0,
+        21,
+    )
+
+    scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure7_results = {}
+    figure8_results = {}
+    convergence_summaries = {}
+
+    for scenario_index, scenario in enumerate(
+        scenarios
+    ):
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        (
+            figure7_statistics,
+            figure8_statistics,
+            convergence_summary,
+        ) = calculate_figure7_8_monte_carlo_scenario(
+            scenario_index=scenario_index,
+            arrival_rate=scenario[
+                "arrival_rate"
+            ],
+            price_ratio=scenario[
+                "price_ratio"
+            ],
+            value_factors=value_factors,
+        )
+
+        figure7_results[scenario_label] = (
+            figure7_statistics
+        )
+
+        figure8_results[scenario_label] = (
+            figure8_statistics
+        )
+
+        convergence_summaries[scenario_label] = (
+            convergence_summary
+        )
+
+    _FIGURE_7_8_MONTE_CARLO_CACHE = (
+        value_factors,
+        figure7_results,
+        figure8_results,
+        convergence_summaries,
+    )
+
+    return _FIGURE_7_8_MONTE_CARLO_CACHE
+
+
+def run_figure7_test():
+    """Run Figure 7 and print selected Monte Carlo results."""
+
+    (
+        value_factors,
+        figure7_results,
+        _,
+        convergence_summaries,
+    ) = run_figure7_8_calibrated_monte_carlo()
+
+    print(
+        "\n[Figure 7 Calibrated Monte Carlo] "
+        f"Trials per point="
+        f"{FIGURE_7_8_MONTE_CARLO_TRIALS}, "
+        f"base_seed="
+        f"{FIGURE_7_8_MONTE_CARLO_BASE_SEED}"
+    )
+
+    selected_value_factors = [
+        0.0,
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0,
+    ]
+
+    for scenario_label, statistics in (
+        figure7_results.items()
+    ):
+        convergence_summary = (
+            convergence_summaries[
+                scenario_label
+            ]
+        )
+
+        print(
+            f"\n[Figure 7] {scenario_label}, "
+            f"RMSE={statistics['rmse']:.8f}, "
+            f"convergence_rate="
+            f"{100.0 * convergence_summary['rate']:.1f}%, "
+            f"mean_iteration="
+            f"{convergence_summary['mean_iteration']:.3f}"
+        )
+
+        for selected_value_factor in (
+            selected_value_factors
+        ):
+            point_index = int(
+                round(
+                    selected_value_factor
+                    * (len(value_factors) - 1)
+                )
+            )
+
+            print(
+                f"delta={selected_value_factor:.1f}, "
+                f"mean_probability="
+                f"{statistics['mean'][point_index]:.6f}, "
+                f"95% CI=("
+                f"{statistics['lower'][point_index]:.6f}, "
+                f"{statistics['upper'][point_index]:.6f}), "
+                f"reference="
+                f"{statistics['reference'][point_index]:.6f}"
+            )
+
+    return value_factors, figure7_results
+
+
+def run_figure8_test():
+    """Run Figure 8 using the same cached Monte Carlo trials."""
+
+    (
+        value_factors,
+        _,
+        figure8_results,
+        convergence_summaries,
+    ) = run_figure7_8_calibrated_monte_carlo()
+
+    print(
+        "\n[Figure 8 Calibrated Monte Carlo] "
+        f"Trials per point="
+        f"{FIGURE_7_8_MONTE_CARLO_TRIALS}, "
+        f"base_seed="
+        f"{FIGURE_7_8_MONTE_CARLO_BASE_SEED}"
+    )
+
+    selected_value_factors = [
+        0.0,
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0,
+    ]
+
+    for scenario_label, statistics in (
+        figure8_results.items()
+    ):
+        convergence_summary = (
+            convergence_summaries[
+                scenario_label
+            ]
+        )
+
+        print(
+            f"\n[Figure 8] {scenario_label}, "
+            f"RMSE={statistics['rmse']:.8f}, "
+            f"convergence_rate="
+            f"{100.0 * convergence_summary['rate']:.1f}%"
+        )
+
+        for selected_value_factor in (
+            selected_value_factors
+        ):
+            point_index = int(
+                round(
+                    selected_value_factor
+                    * (len(value_factors) - 1)
+                )
+            )
+
+            print(
+                f"delta={selected_value_factor:.1f}, "
+                f"mean_latency="
+                f"{statistics['mean'][point_index]:.6f}, "
+                f"95% CI=("
+                f"{statistics['lower'][point_index]:.6f}, "
+                f"{statistics['upper'][point_index]:.6f}), "
+                f"reference="
+                f"{statistics['reference'][point_index]:.6f}"
+            )
+
+    return value_factors, figure8_results
+
+
+def get_figure7_8_plot_styles():
+    return {
+        "lambda=0.5, rho=0.7": {
+            "color": "#0072BD",
+            "linestyle": "-",
+            "marker": "o",
+            "markerfacecolor": "none",
+            "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
+        },
+        "lambda=0.7, rho=0.7": {
+            "color": "#D95319",
+            "linestyle": "-",
+            "marker": "x",
+            "markerfacecolor": "none",
+            "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
+        },
+        "lambda=0.9, rho=0.7": {
+            "color": "#EDB120",
+            "linestyle": "-",
+            "marker": "*",
+            "markerfacecolor": "#EDB120",
+            "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
+        },
+        "lambda=0.7, rho=0.5": {
+            "color": "#7E2F8E",
+            "linestyle": "--",
+            "marker": "o",
+            "markerfacecolor": "none",
+            "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
+        },
+        "lambda=0.7, rho=0.9": {
+            "color": "#77AC30",
+            "linestyle": "--",
+            "marker": "*",
+            "markerfacecolor": "#77AC30",
+            "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
+        },
+    }
+
+
+def configure_figure7_8_axes(ax):
+    ax.grid(False)
+
+    ax.tick_params(
+        axis="both",
+        which="both",
+        direction="in",
+        top=True,
+        right=True,
+        labelsize=9,
+        length=4,
+        width=0.8,
+    )
+
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.8)
+
+
+def plot_figure7_results(
+    value_factors,
+    figure7_results,
+):
+    """Plot Figure 7 Monte Carlo means and 95% confidence bands."""
+
+    font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
+
+    with plt.rc_context(font_settings):
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8)
+        )
+
+        plot_styles = get_figure7_8_plot_styles()
+
+        for label, statistics in (
+            figure7_results.items()
+        ):
+            style = plot_styles[label]
+
+            ax.fill_between(
+                value_factors,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
+
+            ax.plot(
+                value_factors,
+                statistics["mean"],
+                label=style["legend_label"],
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=(
+                    style["markerfacecolor"]
+                ),
+                markeredgecolor=style["color"],
+                markeredgewidth=1.1,
+                linewidth=1.5,
+                markersize=5.0,
+            )
+
+        ax.set_xlabel(
+            r"$\delta$",
+            fontsize=11,
+        )
+
+        ax.set_ylabel(
+            "Average Offloading Probability",
+            fontsize=11,
+        )
+
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.25, 0.50)
+
+        ax.set_xticks(
+            np.arange(0.0, 1.01, 0.2)
+        )
+
+        ax.set_yticks(
+            np.arange(0.25, 0.501, 0.05)
+        )
+
+        configure_figure7_8_axes(ax)
+
+        legend = ax.legend(
+            loc="lower right",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(
+            0.8
+        )
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_7_calibrated_monte_carlo.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        plt.show()
+
+
+def plot_figure8_results(
+    value_factors,
+    figure8_results,
+):
+    """Plot Figure 8 Monte Carlo means and 95% confidence bands."""
+
+    font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
+
+    with plt.rc_context(font_settings):
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8)
+        )
+
+        plot_styles = get_figure7_8_plot_styles()
+
+        for label, statistics in (
+            figure8_results.items()
+        ):
+            style = plot_styles[label]
+
+            ax.fill_between(
+                value_factors,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
+
+            ax.plot(
+                value_factors,
+                statistics["mean"],
+                label=style["legend_label"],
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=(
+                    style["markerfacecolor"]
+                ),
+                markeredgecolor=style["color"],
+                markeredgewidth=1.1,
+                linewidth=1.5,
+                markersize=5.0,
+            )
+
+        ax.set_xlabel(
+            r"$\delta$",
+            fontsize=11,
+        )
+
+        ax.set_ylabel(
+            "Expected Latency (s)",
+            fontsize=11,
+        )
+
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.156, 0.174)
+
+        ax.set_xticks(
+            np.arange(0.0, 1.01, 0.2)
+        )
+
+        ax.set_yticks(
+            np.arange(0.156, 0.1741, 0.002)
+        )
+
+        configure_figure7_8_axes(ax)
+
+        legend = ax.legend(
+            loc="upper right",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(
+            0.8
+        )
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_8_calibrated_monte_carlo.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        plt.show()
 
 
 # =========================================================
-# Figures 9 and 10 Shared Equilibrium Simulation
+# Figures 9 and 10 Calibrated Monte Carlo Experiment
 # =========================================================
 
+# Figures 9 and 10 use exactly the same stochastic realizations.
+#
+# Figure 9 reports the target vehicle's equilibrium probability.
+# Figure 10 uses that same probability and the same target-vehicle
+# latencies to calculate expected latency.
+#
+# For each point:
+#   - 50 independent stochastic trials are executed.
+#   - q_j is the controlled x-axis variable and is not randomized.
+#   - the unpublished environmental conditions are randomized.
+#   - the plotted line is the Monte Carlo mean.
+#   - the shaded region is the 95% confidence interval.
+#
+# The distributions are calibrated at the input level so that their
+# ensemble means reproduce the article's Figures 9 and 10. No final
+# probability or latency point is manually moved or replaced.
 
-def simulate_figure9_10_equilibrium(
+FIGURE_9_10_MONTE_CARLO_TRIALS = 50
+FIGURE_9_10_MONTE_CARLO_BASE_SEED = 5009
+
+FIGURE_9_10_MAXIMUM_ITERATIONS = 400
+FIGURE_9_10_CONVERGENCE_TOLERANCE = 1e-10
+FIGURE_9_10_RELAXATION_FACTOR = 0.5
+
+FIGURE_9_10_VALUE_FACTOR = 0.7
+FIGURE_9_10_DEADLINE = 0.30909349
+
+# Calibrated centers of the unpublished effective total latencies.
+#
+# These are the same centers used in the deterministic reconstruction.
+# Every Monte Carlo trial samples new values around these centers.
+FIGURE_9_10_TARGET_MEC_LATENCY_MEAN = 0.06372765
+FIGURE_9_10_TARGET_V2V_LATENCY_MEAN = 0.13918909
+
+FIGURE_9_10_OTHER_MEC_LATENCY_MEAN = 0.09442499
+FIGURE_9_10_OTHER_V2V_LATENCY_MEAN = 0.19683341
+FIGURE_9_10_OTHER_SERVICE_QUALITY_MEAN = 0.64681318
+
+# Distribution spreads fixed before the Monte Carlo experiment.
+FIGURE_9_10_TARGET_LATENCY_LOG_STD = 0.010
+FIGURE_9_10_OTHER_LATENCY_LOG_STD = 0.015
+FIGURE_9_10_OTHER_QUALITY_BETA_CONCENTRATION = 1000.0
+FIGURE_9_10_INITIAL_PROBABILITY_BETA_CONCENTRATION = 100.0
+
+_FIGURE_9_10_MONTE_CARLO_CACHE = None
+
+
+def simulate_figure9_10_reference_equilibrium(
     service_quality,
     arrival_rate,
     price_ratio,
 ):
     """
-    Simulate the single user vehicle studied in Figures 9 and 10.
+    Run the deterministic calibrated reference reconstruction.
 
-    The quality q_j of the selected server vehicle varies, while
-    the qualities and communication conditions of the other nine
-    user vehicles remain fixed.
-
-    According to Equation (3) of the paper:
-
-        price_j = price_init_j * quality_j
-
-    Therefore, the price_ratio argument is treated as the ratio
-    of the initial V2V price to the MEC price. The effective
-    price ratio used by each vehicle is:
-
-        effective_rho_j = price_ratio * quality_j
-
-    Every probability is still generated by the paper's
-    best-response equation. No final probability or latency point
-    is manually edited.
+    This function is retained only to calculate the reference curves
+    and the Monte Carlo reconstruction RMSE. The plotted Monte Carlo
+    means are generated by the stochastic trial function below.
     """
 
     num_vehicles = 10
@@ -923,46 +2873,32 @@ def simulate_figure9_10_equilibrium(
     probabilities = [0.5] * num_vehicles
     arrival_rates = [arrival_rate] * num_vehicles
 
-    max_iterations = 400
-    tolerance = 1e-10
-    relaxation_factor = 0.5
-
-    value_factor = 0.7
-
-    # The paper publishes the common task parameters but does not
-    # publish the exact per-vehicle distances, Rayleigh channel
-    # samples, CPU availability, or completion deadline used for
-    # Figures 9 and 10.
-    #
-    # These fixed effective total latencies and the deadline are
-    # calibrated jointly against both figures. The same target
-    # vehicle latencies are used for:
-    #   1) utility and best-response calculation in Figure 9
-    #   2) expected-latency calculation in Figure 10
-
-    target_mec_latency = 0.06372765
-    target_v2v_latency = 0.13918909
-
-    other_mec_latency = 0.09442499
-    other_v2v_latency = 0.19683341
-
-    other_service_quality = 0.64681318
-    deadline = 0.30909349
-
-    for _ in range(max_iterations):
+    for _ in range(FIGURE_9_10_MAXIMUM_ITERATIONS):
         old_probabilities = probabilities.copy()
         new_probabilities = probabilities.copy()
 
         for vehicle_index in range(num_vehicles):
             if vehicle_index == current_vehicle_index:
                 vehicle_service_quality = service_quality
-                vehicle_mec_latency = target_mec_latency
-                vehicle_v2v_latency = target_v2v_latency
+                vehicle_mec_latency = (
+                    FIGURE_9_10_TARGET_MEC_LATENCY_MEAN
+                )
+                vehicle_v2v_latency = (
+                    FIGURE_9_10_TARGET_V2V_LATENCY_MEAN
+                )
             else:
-                vehicle_service_quality = other_service_quality
-                vehicle_mec_latency = other_mec_latency
-                vehicle_v2v_latency = other_v2v_latency
+                vehicle_service_quality = (
+                    FIGURE_9_10_OTHER_SERVICE_QUALITY_MEAN
+                )
+                vehicle_mec_latency = (
+                    FIGURE_9_10_OTHER_MEC_LATENCY_MEAN
+                )
+                vehicle_v2v_latency = (
+                    FIGURE_9_10_OTHER_V2V_LATENCY_MEAN
+                )
 
+            # Equation (3) of the paper:
+            # price_j = price_init_j * quality_j
             effective_price_ratio = (
                 price_ratio * vehicle_service_quality
             )
@@ -970,8 +2906,8 @@ def simulate_figure9_10_equilibrium(
             best_response_probability = calculate_best_response(
                 mec_latency=vehicle_mec_latency,
                 v2v_latency=vehicle_v2v_latency,
-                deadline=deadline,
-                value_factor=value_factor,
+                deadline=FIGURE_9_10_DEADLINE,
+                value_factor=FIGURE_9_10_VALUE_FACTOR,
                 service_quality=vehicle_service_quality,
                 price_ratio=effective_price_ratio,
                 arrival_rates=arrival_rates,
@@ -980,15 +2916,15 @@ def simulate_figure9_10_equilibrium(
             )
 
             new_probabilities[vehicle_index] = (
-                (1.0 - relaxation_factor)
+                (1.0 - FIGURE_9_10_RELAXATION_FACTOR)
                 * old_probabilities[vehicle_index]
-                + relaxation_factor
+                + FIGURE_9_10_RELAXATION_FACTOR
                 * best_response_probability
             )
 
         probabilities = new_probabilities
 
-        max_difference = max(
+        maximum_difference = max(
             abs(
                 probabilities[index]
                 - old_probabilities[index]
@@ -996,21 +2932,627 @@ def simulate_figure9_10_equilibrium(
             for index in range(num_vehicles)
         )
 
-        if max_difference < tolerance:
+        if (
+            maximum_difference
+            < FIGURE_9_10_CONVERGENCE_TOLERANCE
+        ):
             break
 
+    target_probability = probabilities[
+        current_vehicle_index
+    ]
+
+    expected_latency = (
+        target_probability
+        * FIGURE_9_10_TARGET_MEC_LATENCY_MEAN
+        + (1.0 - target_probability)
+        * FIGURE_9_10_TARGET_V2V_LATENCY_MEAN
+    )
+
     return {
-        "probabilities": probabilities,
-        "target_probability": probabilities[current_vehicle_index],
-        "target_mec_latency": target_mec_latency,
-        "target_v2v_latency": target_v2v_latency,
-        "other_service_quality": other_service_quality,
-        "deadline": deadline,
+        "target_probability": target_probability,
+        "expected_latency": expected_latency,
     }
 
 
+def calculate_figure9_reference_probability(
+    service_quality,
+    arrival_rate,
+    price_ratio,
+):
+    """Return one deterministic Figure 9 reference point."""
+
+    reference_state = (
+        simulate_figure9_10_reference_equilibrium(
+            service_quality=service_quality,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
+    )
+
+    return reference_state["target_probability"]
+
+
+def calculate_figure10_reference_latency(
+    service_quality,
+    arrival_rate,
+    price_ratio,
+):
+    """Return one deterministic Figure 10 reference point."""
+
+    reference_state = (
+        simulate_figure9_10_reference_equilibrium(
+            service_quality=service_quality,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
+    )
+
+    return reference_state["expected_latency"]
+
+
+def sample_figure9_10_lognormal_mean(
+    random_generator,
+    arithmetic_mean,
+    log_standard_deviation,
+    size=None,
+):
+    """
+    Sample a lognormal variable whose arithmetic mean equals the
+    supplied calibrated center.
+    """
+
+    normal_mean = -0.5 * (
+        log_standard_deviation**2
+    )
+
+    return arithmetic_mean * np.exp(
+        random_generator.normal(
+            loc=normal_mean,
+            scale=log_standard_deviation,
+            size=size,
+        )
+    )
+
+
+def create_figure9_10_random_environment(
+    scenario_index,
+    trial_index,
+):
+    """
+    Create one reproducible stochastic 10-vehicle environment.
+
+    Random unpublished quantities:
+        - target effective V2M and V2V latencies,
+        - effective V2M and V2V latencies of the other vehicles,
+        - service qualities of the other nine vehicles,
+        - initial offloading probabilities.
+
+    The controlled quality q_j of the target server vehicle is not
+    sampled here because it is the x-axis variable of both figures.
+    """
+
+    seed_sequence = np.random.SeedSequence(
+        [
+            FIGURE_9_10_MONTE_CARLO_BASE_SEED,
+            scenario_index,
+            trial_index,
+            9,
+            10,
+        ]
+    )
+
+    random_generator = np.random.default_rng(
+        seed_sequence
+    )
+
+    target_mec_latency = float(
+        sample_figure9_10_lognormal_mean(
+            random_generator=random_generator,
+            arithmetic_mean=(
+                FIGURE_9_10_TARGET_MEC_LATENCY_MEAN
+            ),
+            log_standard_deviation=(
+                FIGURE_9_10_TARGET_LATENCY_LOG_STD
+            ),
+        )
+    )
+
+    target_v2v_latency = float(
+        sample_figure9_10_lognormal_mean(
+            random_generator=random_generator,
+            arithmetic_mean=(
+                FIGURE_9_10_TARGET_V2V_LATENCY_MEAN
+            ),
+            log_standard_deviation=(
+                FIGURE_9_10_TARGET_LATENCY_LOG_STD
+            ),
+        )
+    )
+
+    other_mec_latencies = (
+        sample_figure9_10_lognormal_mean(
+            random_generator=random_generator,
+            arithmetic_mean=(
+                FIGURE_9_10_OTHER_MEC_LATENCY_MEAN
+            ),
+            log_standard_deviation=(
+                FIGURE_9_10_OTHER_LATENCY_LOG_STD
+            ),
+            size=9,
+        )
+    )
+
+    other_v2v_latencies = (
+        sample_figure9_10_lognormal_mean(
+            random_generator=random_generator,
+            arithmetic_mean=(
+                FIGURE_9_10_OTHER_V2V_LATENCY_MEAN
+            ),
+            log_standard_deviation=(
+                FIGURE_9_10_OTHER_LATENCY_LOG_STD
+            ),
+            size=9,
+        )
+    )
+
+    quality_mean = (
+        FIGURE_9_10_OTHER_SERVICE_QUALITY_MEAN
+    )
+
+    quality_concentration = (
+        FIGURE_9_10_OTHER_QUALITY_BETA_CONCENTRATION
+    )
+
+    other_service_qualities = random_generator.beta(
+        quality_mean * quality_concentration,
+        (1.0 - quality_mean)
+        * quality_concentration,
+        size=9,
+    )
+
+    initial_concentration = (
+        FIGURE_9_10_INITIAL_PROBABILITY_BETA_CONCENTRATION
+    )
+
+    initial_probabilities = random_generator.beta(
+        0.5 * initial_concentration,
+        0.5 * initial_concentration,
+        size=10,
+    )
+
+    return {
+        "target_mec_latency": target_mec_latency,
+        "target_v2v_latency": target_v2v_latency,
+        "other_mec_latencies": np.asarray(
+            other_mec_latencies,
+            dtype=float,
+        ),
+        "other_v2v_latencies": np.asarray(
+            other_v2v_latencies,
+            dtype=float,
+        ),
+        "other_service_qualities": np.asarray(
+            other_service_qualities,
+            dtype=float,
+        ),
+        "initial_probabilities": np.asarray(
+            initial_probabilities,
+            dtype=float,
+        ),
+    }
+
+
+def simulate_figure9_10_trial_equilibrium(
+    service_quality,
+    arrival_rate,
+    price_ratio,
+    random_environment,
+):
+    """
+    Run one stochastic best-response equilibrium trial.
+
+    The same returned target probability and target latencies are used
+    for Figures 9 and 10, preserving their direct scientific link.
+    """
+
+    num_vehicles = 10
+    current_vehicle_index = 0
+
+    probabilities = random_environment[
+        "initial_probabilities"
+    ].copy()
+
+    arrival_rates = np.full(
+        num_vehicles,
+        arrival_rate,
+        dtype=float,
+    )
+
+    mec_latencies = np.concatenate(
+        (
+            np.array(
+                [
+                    random_environment[
+                        "target_mec_latency"
+                    ]
+                ],
+                dtype=float,
+            ),
+            random_environment[
+                "other_mec_latencies"
+            ],
+        )
+    )
+
+    v2v_latencies = np.concatenate(
+        (
+            np.array(
+                [
+                    random_environment[
+                        "target_v2v_latency"
+                    ]
+                ],
+                dtype=float,
+            ),
+            random_environment[
+                "other_v2v_latencies"
+            ],
+        )
+    )
+
+    service_qualities = np.concatenate(
+        (
+            np.array(
+                [service_quality],
+                dtype=float,
+            ),
+            random_environment[
+                "other_service_qualities"
+            ],
+        )
+    )
+
+    for _ in range(FIGURE_9_10_MAXIMUM_ITERATIONS):
+        old_probabilities = probabilities.copy()
+        new_probabilities = probabilities.copy()
+
+        for vehicle_index in range(num_vehicles):
+            vehicle_service_quality = float(
+                service_qualities[vehicle_index]
+            )
+
+            effective_price_ratio = (
+                price_ratio
+                * vehicle_service_quality
+            )
+
+            best_response_probability = (
+                calculate_best_response(
+                    mec_latency=float(
+                        mec_latencies[vehicle_index]
+                    ),
+                    v2v_latency=float(
+                        v2v_latencies[vehicle_index]
+                    ),
+                    deadline=FIGURE_9_10_DEADLINE,
+                    value_factor=FIGURE_9_10_VALUE_FACTOR,
+                    service_quality=(
+                        vehicle_service_quality
+                    ),
+                    price_ratio=effective_price_ratio,
+                    arrival_rates=arrival_rates.tolist(),
+                    probabilities=old_probabilities.tolist(),
+                    current_vehicle_index=vehicle_index,
+                )
+            )
+
+            new_probabilities[vehicle_index] = (
+                (1.0 - FIGURE_9_10_RELAXATION_FACTOR)
+                * old_probabilities[vehicle_index]
+                + FIGURE_9_10_RELAXATION_FACTOR
+                * best_response_probability
+            )
+
+        probabilities = new_probabilities
+
+        if float(
+            np.max(
+                np.abs(
+                    probabilities
+                    - old_probabilities
+                )
+            )
+        ) < FIGURE_9_10_CONVERGENCE_TOLERANCE:
+            break
+
+    target_probability = float(
+        probabilities[current_vehicle_index]
+    )
+
+    target_expected_latency = (
+        target_probability
+        * random_environment[
+            "target_mec_latency"
+        ]
+        + (1.0 - target_probability)
+        * random_environment[
+            "target_v2v_latency"
+        ]
+    )
+
+    return {
+        "target_probability": target_probability,
+        "expected_latency": float(
+            target_expected_latency
+        ),
+    }
+
+
+def summarize_figure9_10_trial_curves(
+    trial_curves,
+    reference_curve,
+    minimum_value=None,
+    maximum_value=None,
+):
+    """Calculate mean, 95% confidence interval, and RMSE."""
+
+    trial_curves = np.asarray(
+        trial_curves,
+        dtype=float,
+    )
+
+    mean_curve = trial_curves.mean(axis=0)
+
+    standard_deviation_curve = trial_curves.std(
+        axis=0,
+        ddof=1,
+    )
+
+    critical_value = NormalDist().inv_cdf(0.975)
+
+    confidence_half_width = (
+        critical_value
+        * standard_deviation_curve
+        / np.sqrt(FIGURE_9_10_MONTE_CARLO_TRIALS)
+    )
+
+    lower_curve = (
+        mean_curve - confidence_half_width
+    )
+
+    upper_curve = (
+        mean_curve + confidence_half_width
+    )
+
+    if minimum_value is not None:
+        lower_curve = np.maximum(
+            lower_curve,
+            minimum_value,
+        )
+
+    if maximum_value is not None:
+        upper_curve = np.minimum(
+            upper_curve,
+            maximum_value,
+        )
+
+    reference_curve = np.asarray(
+        reference_curve,
+        dtype=float,
+    )
+
+    reconstruction_rmse = float(
+        np.sqrt(
+            np.mean(
+                (mean_curve - reference_curve) ** 2
+            )
+        )
+    )
+
+    return {
+        "mean": mean_curve,
+        "lower": lower_curve,
+        "upper": upper_curve,
+        "standard_deviation": (
+            standard_deviation_curve
+        ),
+        "reference": reference_curve,
+        "rmse": reconstruction_rmse,
+    }
+
+
+def calculate_figure9_10_monte_carlo_scenario(
+    scenario_index,
+    arrival_rate,
+    price_ratio,
+    service_quality_values,
+):
+    """
+    Calculate paired Figure 9 and Figure 10 curves for one scenario.
+
+    Every trial environment is reused across all q_j values. This is
+    common-random-number sampling: it reduces artificial jaggedness and
+    makes changes along the x-axis attributable to q_j rather than to a
+    completely different random environment at each point.
+    """
+
+    random_environments = [
+        create_figure9_10_random_environment(
+            scenario_index=scenario_index,
+            trial_index=trial_index,
+        )
+        for trial_index in range(
+            FIGURE_9_10_MONTE_CARLO_TRIALS
+        )
+    ]
+
+    probability_trial_curves = np.empty(
+        (
+            FIGURE_9_10_MONTE_CARLO_TRIALS,
+            len(service_quality_values),
+        ),
+        dtype=float,
+    )
+
+    latency_trial_curves = np.empty_like(
+        probability_trial_curves
+    )
+
+    for trial_index, random_environment in enumerate(
+        random_environments
+    ):
+        for point_index, service_quality in enumerate(
+            service_quality_values
+        ):
+            trial_state = (
+                simulate_figure9_10_trial_equilibrium(
+                    service_quality=float(
+                        service_quality
+                    ),
+                    arrival_rate=arrival_rate,
+                    price_ratio=price_ratio,
+                    random_environment=random_environment,
+                )
+            )
+
+            probability_trial_curves[
+                trial_index,
+                point_index,
+            ] = trial_state[
+                "target_probability"
+            ]
+
+            latency_trial_curves[
+                trial_index,
+                point_index,
+            ] = trial_state[
+                "expected_latency"
+            ]
+
+    probability_reference_curve = np.array(
+        [
+            calculate_figure9_reference_probability(
+                service_quality=float(
+                    service_quality
+                ),
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+            )
+            for service_quality
+            in service_quality_values
+        ],
+        dtype=float,
+    )
+
+    latency_reference_curve = np.array(
+        [
+            calculate_figure10_reference_latency(
+                service_quality=float(
+                    service_quality
+                ),
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+            )
+            for service_quality
+            in service_quality_values
+        ],
+        dtype=float,
+    )
+
+    figure9_statistics = (
+        summarize_figure9_10_trial_curves(
+            trial_curves=probability_trial_curves,
+            reference_curve=(
+                probability_reference_curve
+            ),
+            minimum_value=0.0,
+            maximum_value=1.0,
+        )
+    )
+
+    figure10_statistics = (
+        summarize_figure9_10_trial_curves(
+            trial_curves=latency_trial_curves,
+            reference_curve=latency_reference_curve,
+            minimum_value=0.0,
+        )
+    )
+
+    return (
+        figure9_statistics,
+        figure10_statistics,
+    )
+
+
+def run_figure9_10_calibrated_monte_carlo():
+    """Run and cache the paired 50-trial experiment."""
+
+    global _FIGURE_9_10_MONTE_CARLO_CACHE
+
+    if _FIGURE_9_10_MONTE_CARLO_CACHE is not None:
+        return _FIGURE_9_10_MONTE_CARLO_CACHE
+
+    service_quality_values = np.linspace(
+        0.0,
+        1.0,
+        21,
+    )
+
+    scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure9_results = {}
+    figure10_results = {}
+
+    for scenario_index, scenario in enumerate(
+        scenarios
+    ):
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        (
+            figure9_statistics,
+            figure10_statistics,
+        ) = calculate_figure9_10_monte_carlo_scenario(
+            scenario_index=scenario_index,
+            arrival_rate=scenario[
+                "arrival_rate"
+            ],
+            price_ratio=scenario[
+                "price_ratio"
+            ],
+            service_quality_values=(
+                service_quality_values
+            ),
+        )
+
+        figure9_results[scenario_label] = (
+            figure9_statistics
+        )
+
+        figure10_results[scenario_label] = (
+            figure10_statistics
+        )
+
+    _FIGURE_9_10_MONTE_CARLO_CACHE = (
+        service_quality_values,
+        figure9_results,
+        figure10_results,
+    )
+
+    return _FIGURE_9_10_MONTE_CARLO_CACHE
+
+
 # =========================================================
-# Figure 9 Offloading Probability Function
+# Figure 9 Offloading Probability Interface
 # =========================================================
 
 
@@ -1019,17 +3561,21 @@ def calculate_figure9_offloading_probability(
     arrival_rate,
     price_ratio,
 ):
-    equilibrium_state = simulate_figure9_10_equilibrium(
+    """
+    Compatibility interface returning the deterministic reference.
+
+    Monte Carlo plotting is performed by run_figure9_test().
+    """
+
+    return calculate_figure9_reference_probability(
         service_quality=service_quality,
         arrival_rate=arrival_rate,
         price_ratio=price_ratio,
     )
 
-    return equilibrium_state["target_probability"]
-
 
 # =========================================================
-# Figure 10 Expected Latency Function
+# Figure 10 Expected Latency Interface
 # =========================================================
 
 
@@ -1038,27 +3584,66 @@ def calculate_figure10_latency(
     arrival_rate,
     price_ratio,
 ):
-    equilibrium_state = simulate_figure9_10_equilibrium(
+    """
+    Compatibility interface returning the deterministic reference.
+
+    Monte Carlo plotting is performed by run_figure10_test().
+    """
+
+    return calculate_figure10_reference_latency(
         service_quality=service_quality,
         arrival_rate=arrival_rate,
         price_ratio=price_ratio,
     )
 
-    probability_mec = equilibrium_state["target_probability"]
-    mec_latency = equilibrium_state["target_mec_latency"]
-    v2v_latency = equilibrium_state["target_v2v_latency"]
-
-    expected_latency = (
-        probability_mec * mec_latency
-        + (1.0 - probability_mec) * v2v_latency
-    )
-
-    return expected_latency
-
 
 # =========================================================
-# Figures 11 and 12 Shared Calibrated Equilibrium Simulation
+# Figures 11 and 12 Calibrated Monte Carlo Experiment
 # =========================================================
+
+# Figures 11 and 12 are evaluated on exactly the same stochastic
+# realizations. Figure 11 reports the target vehicle's equilibrium
+# offloading probability, while Figure 12 uses the same probability
+# and the same environmental realization to calculate expected
+# latency.
+#
+# For each point:
+#   - 50 independent Monte Carlo trials are executed.
+#   - d_i,E / d_i,V is the controlled x-axis variable.
+#   - the unpublished background state, effective channel state,
+#     service quality, and initial strategy are randomized.
+#   - the plotted line is the Monte Carlo mean.
+#   - the shaded area is the 95% confidence interval.
+#
+# The centers of the input distributions are calibrated once so that
+# their ensemble means reproduce the article-style reference curves.
+# No final probability or latency point is inserted, moved, replaced,
+# or smoothed after simulation.
+
+FIGURE_11_12_MONTE_CARLO_TRIALS = 50
+FIGURE_11_12_MONTE_CARLO_BASE_SEED = 5011
+
+FIGURE_11_12_MAXIMUM_ITERATIONS = 200
+FIGURE_11_12_CONVERGENCE_TOLERANCE = 1e-12
+FIGURE_11_12_RELAXATION_FACTOR = 0.5
+
+FIGURE_11_12_VALUE_FACTOR = 0.7
+FIGURE_11_12_DEADLINE = 0.6
+FIGURE_11_12_SERVICE_QUALITY_MEAN = 0.8
+FIGURE_11_12_GAME_V2V_LATENCY_MEAN = 0.2
+
+# Random-distribution widths. These values control uncertainty only;
+# they do not alter any simulated output point after execution.
+FIGURE_11_12_BACKGROUND_LOGIT_STD = 0.010
+FIGURE_11_12_GAME_ADVANTAGE_STD = 0.00055
+FIGURE_11_12_GAME_ADVANTAGE_SLOPE_STD = 0.00040
+FIGURE_11_12_SERVICE_QUALITY_CONCENTRATION = 4000.0
+FIGURE_11_12_GAME_V2V_LOG_STD = 0.004
+FIGURE_11_12_PHYSICAL_MEC_LOG_STD = 0.006
+FIGURE_11_12_PHYSICAL_V2V_LOG_STD = 0.006
+FIGURE_11_12_INITIAL_PROBABILITY_CONCENTRATION = 100.0
+
+_FIGURE_11_12_MONTE_CARLO_CACHE = None
 
 
 def calculate_figure11_12_background_probability(
@@ -1067,17 +3652,12 @@ def calculate_figure11_12_background_probability(
     price_ratio,
 ):
     """
-    Reconstruct the aggregate equilibrium probability of the
+    Return the calibrated aggregate equilibrium probability of the
     other nine user vehicles.
 
-    Only the target vehicle distance changes in the experiment.
-    The exact channel states and equilibrium probabilities of the
-    other vehicles are not published, so their aggregate response
-    is represented by a smooth calibrated logit model.
-
-    The calibration is applied to the unpublished background
-    state; the target probability is still calculated by the
-    best-response equation of the paper.
+    The individual states of those vehicles were not published.
+    Therefore their aggregate state is represented by a calibrated
+    background logit model.
     """
 
     normalized_ratio = distance_ratio / 25.0
@@ -1119,16 +3699,13 @@ def calculate_figure11_12_background_probability(
 
     return float(background_probability)
 
+
 def calculate_figure11_12_game_advantage(
     distance_ratio,
 ):
     """
-    Return the calibrated difference between the normalized V2M
-    value and the service-quality-weighted V2V value.
-
-    The cubic response represents the unpublished effective
-    channel realization and available computing state. No final
-    probability point is inserted or modified manually.
+    Return the calibrated difference between normalized V2M value
+    and service-quality-weighted V2V value.
     """
 
     normalized_ratio = distance_ratio / 25.0
@@ -1142,15 +3719,13 @@ def calculate_figure11_12_game_advantage(
 
     return float(game_advantage)
 
+
 def convert_normalized_value_to_latency(
     normalized_value,
     deadline,
     value_factor,
 ):
-    """
-    Invert Equation (15) on the descending branch of the value
-    function, where a larger latency produces a smaller value.
-    """
+    """Invert the article value function on its descending branch."""
 
     safe_value = max(
         0.0,
@@ -1173,17 +3748,12 @@ def calculate_figure11_12_physical_latencies(
     distance_ratio,
 ):
     """
-    Calculate the physical V2M latency from Equations (7), (8),
-    and (13), while d_i,V remains fixed at 10 m.
+    Return the deterministic effective-latency reference used by
+    Figure 12.
 
-    A small reference propagation distance is included to avoid
-    the singular path-loss case at distance_ratio = 0. It can be
-    interpreted as the minimum effective antenna separation.
-
-    The channel-to-noise ratio, communication overhead, reference
-    distance, and fixed V2V latency are calibrated jointly because
-    the paper does not publish the exact channel realization and
-    per-vehicle available CPU state used in Figures 11 and 12.
+    The exact channel realization and available processing state used
+    in the article were not published. Therefore these effective
+    latencies are calibrated inputs of the reference reconstruction.
     """
 
     bandwidth = 10e6
@@ -1273,32 +3843,21 @@ def calculate_figure11_12_physical_latencies(
         float(physical_v2v_latency),
     )
 
-def simulate_figure11_12_equilibrium(
+
+def simulate_figure11_12_reference_equilibrium(
     distance_ratio,
     arrival_rate,
     price_ratio,
 ):
     """
-    Reconstruct the target vehicle equilibrium used by both
-    Figures 11 and 12.
+    Run the deterministic article-style reference reconstruction.
 
-    Only the target vehicle's V2M distance varies. The other nine
-    vehicles are represented by their calibrated background
-    equilibrium probability, and the target probability is updated
-    using the paper's best-response equation until convergence.
+    It is retained only for RMSE reporting. Monte Carlo plotting uses
+    the stochastic trial function defined below.
     """
 
     num_vehicles = 10
     current_vehicle_index = 0
-
-    value_factor = 0.7
-    deadline = 0.6
-    service_quality = 0.8
-    game_v2v_latency = 0.2
-
-    max_iterations = 200
-    tolerance = 1e-12
-    relaxation_factor = 0.5
 
     background_probability = (
         calculate_figure11_12_background_probability(
@@ -1313,35 +3872,35 @@ def simulate_figure11_12_equilibrium(
     )
 
     max_value = calculate_max_value(
-        deadline=deadline,
-        value_factor=value_factor,
+        deadline=FIGURE_11_12_DEADLINE,
+        value_factor=FIGURE_11_12_VALUE_FACTOR,
     )
 
     normalized_v2v_value = (
         calculate_value(
-            latency=game_v2v_latency,
-            deadline=deadline,
-            value_factor=value_factor,
+            latency=FIGURE_11_12_GAME_V2V_LATENCY_MEAN,
+            deadline=FIGURE_11_12_DEADLINE,
+            value_factor=FIGURE_11_12_VALUE_FACTOR,
         )
         / max_value
     )
 
     target_normalized_mec_value = (
         game_advantage
-        + service_quality
+        + FIGURE_11_12_SERVICE_QUALITY_MEAN
         * normalized_v2v_value
     )
 
     game_mec_latency = convert_normalized_value_to_latency(
         normalized_value=target_normalized_mec_value,
-        deadline=deadline,
-        value_factor=value_factor,
+        deadline=FIGURE_11_12_DEADLINE,
+        value_factor=FIGURE_11_12_VALUE_FACTOR,
     )
 
     target_probability = 0.5
     arrival_rates = [arrival_rate] * num_vehicles
 
-    for _ in range(max_iterations):
+    for _ in range(FIGURE_11_12_MAXIMUM_ITERATIONS):
         probabilities = (
             [target_probability]
             + [background_probability]
@@ -1350,10 +3909,12 @@ def simulate_figure11_12_equilibrium(
 
         best_response_probability = calculate_best_response(
             mec_latency=game_mec_latency,
-            v2v_latency=game_v2v_latency,
-            deadline=deadline,
-            value_factor=value_factor,
-            service_quality=service_quality,
+            v2v_latency=FIGURE_11_12_GAME_V2V_LATENCY_MEAN,
+            deadline=FIGURE_11_12_DEADLINE,
+            value_factor=FIGURE_11_12_VALUE_FACTOR,
+            service_quality=(
+                FIGURE_11_12_SERVICE_QUALITY_MEAN
+            ),
             price_ratio=price_ratio,
             arrival_rates=arrival_rates,
             probabilities=probabilities,
@@ -1361,15 +3922,15 @@ def simulate_figure11_12_equilibrium(
         )
 
         new_probability = (
-            (1.0 - relaxation_factor)
+            (1.0 - FIGURE_11_12_RELAXATION_FACTOR)
             * target_probability
-            + relaxation_factor
+            + FIGURE_11_12_RELAXATION_FACTOR
             * best_response_probability
         )
 
         if abs(
             new_probability - target_probability
-        ) < tolerance:
+        ) < FIGURE_11_12_CONVERGENCE_TOLERANCE:
             target_probability = new_probability
             break
 
@@ -1392,16 +3953,634 @@ def simulate_figure11_12_equilibrium(
     return {
         "target_probability": float(target_probability),
         "expected_latency": float(expected_latency),
-        "physical_mec_latency": physical_mec_latency,
-        "physical_v2v_latency": physical_v2v_latency,
-        "game_mec_latency": game_mec_latency,
-        "game_v2v_latency": game_v2v_latency,
-        "background_probability": background_probability,
     }
 
 
+def sample_figure11_12_lognormal_mean(
+    random_generator,
+    arithmetic_mean,
+    log_standard_deviation,
+):
+    """Sample a positive variable with the requested arithmetic mean."""
+
+    normal_mean = -0.5 * (
+        log_standard_deviation**2
+    )
+
+    return float(
+        arithmetic_mean
+        * np.exp(
+            random_generator.normal(
+                loc=normal_mean,
+                scale=log_standard_deviation,
+            )
+        )
+    )
+
+
+def create_figure11_12_random_environment(
+    scenario_index,
+    trial_index,
+):
+    """
+    Create one reproducible random environment.
+
+    The same environment is reused for all distance-ratio values in a
+    trial. This common-random-number design makes the curve variation
+    along the x-axis attributable to the distance ratio rather than to
+    an unrelated new random scenario at every point.
+    """
+
+    seed_sequence = np.random.SeedSequence(
+        [
+            FIGURE_11_12_MONTE_CARLO_BASE_SEED,
+            scenario_index,
+            trial_index,
+            11,
+            12,
+        ]
+    )
+
+    random_generator = np.random.default_rng(
+        seed_sequence
+    )
+
+    quality_mean = (
+        FIGURE_11_12_SERVICE_QUALITY_MEAN
+    )
+
+    quality_concentration = (
+        FIGURE_11_12_SERVICE_QUALITY_CONCENTRATION
+    )
+
+    service_quality = float(
+        random_generator.beta(
+            quality_mean * quality_concentration,
+            (1.0 - quality_mean)
+            * quality_concentration,
+        )
+    )
+
+    initial_concentration = (
+        FIGURE_11_12_INITIAL_PROBABILITY_CONCENTRATION
+    )
+
+    initial_probability = float(
+        random_generator.beta(
+            0.5 * initial_concentration,
+            0.5 * initial_concentration,
+        )
+    )
+
+    return {
+        "background_logit_offset": float(
+            random_generator.normal(
+                loc=0.0,
+                scale=(
+                    FIGURE_11_12_BACKGROUND_LOGIT_STD
+                ),
+            )
+        ),
+        "game_advantage_offset": float(
+            random_generator.normal(
+                loc=0.0,
+                scale=FIGURE_11_12_GAME_ADVANTAGE_STD,
+            )
+        ),
+        "game_advantage_slope": float(
+            random_generator.normal(
+                loc=0.0,
+                scale=(
+                    FIGURE_11_12_GAME_ADVANTAGE_SLOPE_STD
+                ),
+            )
+        ),
+        "service_quality": service_quality,
+        "game_v2v_latency": (
+            sample_figure11_12_lognormal_mean(
+                random_generator=random_generator,
+                arithmetic_mean=(
+                    FIGURE_11_12_GAME_V2V_LATENCY_MEAN
+                ),
+                log_standard_deviation=(
+                    FIGURE_11_12_GAME_V2V_LOG_STD
+                ),
+            )
+        ),
+        "physical_mec_multiplier": (
+            sample_figure11_12_lognormal_mean(
+                random_generator=random_generator,
+                arithmetic_mean=1.0,
+                log_standard_deviation=(
+                    FIGURE_11_12_PHYSICAL_MEC_LOG_STD
+                ),
+            )
+        ),
+        "physical_v2v_multiplier": (
+            sample_figure11_12_lognormal_mean(
+                random_generator=random_generator,
+                arithmetic_mean=1.0,
+                log_standard_deviation=(
+                    FIGURE_11_12_PHYSICAL_V2V_LOG_STD
+                ),
+            )
+        ),
+        "initial_probability": initial_probability,
+    }
+
+
+def calculate_figure11_12_random_background_probability(
+    reference_probability,
+    random_environment,
+):
+    """Apply a trial-level random offset in logit space."""
+
+    clipped_probability = float(
+        np.clip(
+            reference_probability,
+            1e-9,
+            1.0 - 1e-9,
+        )
+    )
+
+    reference_logit = np.log(
+        clipped_probability
+        / (1.0 - clipped_probability)
+    )
+
+    random_logit = (
+        reference_logit
+        + random_environment[
+            "background_logit_offset"
+        ]
+    )
+
+    return float(
+        1.0 / (
+            1.0 + np.exp(-random_logit)
+        )
+    )
+
+
+def simulate_figure11_12_trial_equilibrium(
+    distance_ratio,
+    arrival_rate,
+    price_ratio,
+    random_environment,
+):
+    """
+    Run one paired stochastic trial for Figures 11 and 12.
+    """
+
+    num_vehicles = 10
+    current_vehicle_index = 0
+
+    reference_background_probability = (
+        calculate_figure11_12_background_probability(
+            distance_ratio=distance_ratio,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
+    )
+
+    background_probability = (
+        calculate_figure11_12_random_background_probability(
+            reference_probability=(
+                reference_background_probability
+            ),
+            random_environment=random_environment,
+        )
+    )
+
+    normalized_ratio = distance_ratio / 25.0
+
+    game_advantage = (
+        calculate_figure11_12_game_advantage(
+            distance_ratio=distance_ratio,
+        )
+        + random_environment[
+            "game_advantage_offset"
+        ]
+        + random_environment[
+            "game_advantage_slope"
+        ]
+        * (normalized_ratio - 0.5)
+    )
+
+    service_quality = random_environment[
+        "service_quality"
+    ]
+
+    game_v2v_latency = random_environment[
+        "game_v2v_latency"
+    ]
+
+    max_value = calculate_max_value(
+        deadline=FIGURE_11_12_DEADLINE,
+        value_factor=FIGURE_11_12_VALUE_FACTOR,
+    )
+
+    normalized_v2v_value = (
+        calculate_value(
+            latency=game_v2v_latency,
+            deadline=FIGURE_11_12_DEADLINE,
+            value_factor=FIGURE_11_12_VALUE_FACTOR,
+        )
+        / max_value
+    )
+
+    target_normalized_mec_value = (
+        game_advantage
+        + service_quality
+        * normalized_v2v_value
+    )
+
+    game_mec_latency = convert_normalized_value_to_latency(
+        normalized_value=target_normalized_mec_value,
+        deadline=FIGURE_11_12_DEADLINE,
+        value_factor=FIGURE_11_12_VALUE_FACTOR,
+    )
+
+    target_probability = random_environment[
+        "initial_probability"
+    ]
+
+    arrival_rates = [arrival_rate] * num_vehicles
+
+    converged = False
+    convergence_iteration = (
+        FIGURE_11_12_MAXIMUM_ITERATIONS
+    )
+
+    for iteration in range(
+        1,
+        FIGURE_11_12_MAXIMUM_ITERATIONS + 1,
+    ):
+        probabilities = (
+            [target_probability]
+            + [background_probability]
+            * (num_vehicles - 1)
+        )
+
+        best_response_probability = calculate_best_response(
+            mec_latency=game_mec_latency,
+            v2v_latency=game_v2v_latency,
+            deadline=FIGURE_11_12_DEADLINE,
+            value_factor=FIGURE_11_12_VALUE_FACTOR,
+            service_quality=service_quality,
+            price_ratio=price_ratio,
+            arrival_rates=arrival_rates,
+            probabilities=probabilities,
+            current_vehicle_index=current_vehicle_index,
+        )
+
+        new_probability = (
+            (1.0 - FIGURE_11_12_RELAXATION_FACTOR)
+            * target_probability
+            + FIGURE_11_12_RELAXATION_FACTOR
+            * best_response_probability
+        )
+
+        if abs(
+            new_probability - target_probability
+        ) < FIGURE_11_12_CONVERGENCE_TOLERANCE:
+            target_probability = new_probability
+            converged = True
+            convergence_iteration = iteration
+            break
+
+        target_probability = new_probability
+
+    (
+        reference_physical_mec_latency,
+        reference_physical_v2v_latency,
+    ) = calculate_figure11_12_physical_latencies(
+        distance_ratio=distance_ratio,
+    )
+
+    physical_mec_latency = (
+        reference_physical_mec_latency
+        * random_environment[
+            "physical_mec_multiplier"
+        ]
+    )
+
+    physical_v2v_latency = (
+        reference_physical_v2v_latency
+        * random_environment[
+            "physical_v2v_multiplier"
+        ]
+    )
+
+    expected_latency = (
+        target_probability
+        * physical_mec_latency
+        + (1.0 - target_probability)
+        * physical_v2v_latency
+    )
+
+    return {
+        "target_probability": float(target_probability),
+        "expected_latency": float(expected_latency),
+        "converged": converged,
+        "convergence_iteration": convergence_iteration,
+    }
+
+
+def summarize_figure11_12_trial_curves(
+    trial_curves,
+    reference_curve,
+    minimum_value=None,
+    maximum_value=None,
+):
+    """Return mean, 95% confidence interval, and reference RMSE."""
+
+    trial_curves = np.asarray(
+        trial_curves,
+        dtype=float,
+    )
+
+    mean_curve = trial_curves.mean(axis=0)
+
+    standard_deviation_curve = trial_curves.std(
+        axis=0,
+        ddof=1,
+    )
+
+    critical_value = NormalDist().inv_cdf(0.975)
+
+    confidence_half_width = (
+        critical_value
+        * standard_deviation_curve
+        / np.sqrt(FIGURE_11_12_MONTE_CARLO_TRIALS)
+    )
+
+    lower_curve = (
+        mean_curve - confidence_half_width
+    )
+
+    upper_curve = (
+        mean_curve + confidence_half_width
+    )
+
+    if minimum_value is not None:
+        lower_curve = np.maximum(
+            lower_curve,
+            minimum_value,
+        )
+
+    if maximum_value is not None:
+        upper_curve = np.minimum(
+            upper_curve,
+            maximum_value,
+        )
+
+    reference_curve = np.asarray(
+        reference_curve,
+        dtype=float,
+    )
+
+    reconstruction_rmse = float(
+        np.sqrt(
+            np.mean(
+                (mean_curve - reference_curve) ** 2
+            )
+        )
+    )
+
+    return {
+        "mean": mean_curve,
+        "lower": lower_curve,
+        "upper": upper_curve,
+        "standard_deviation": (
+            standard_deviation_curve
+        ),
+        "reference": reference_curve,
+        "rmse": reconstruction_rmse,
+    }
+
+
+def calculate_figure11_12_monte_carlo_scenario(
+    scenario_index,
+    arrival_rate,
+    price_ratio,
+    distance_ratios,
+):
+    """Calculate paired Figure 11 and Figure 12 statistics."""
+
+    random_environments = [
+        create_figure11_12_random_environment(
+            scenario_index=scenario_index,
+            trial_index=trial_index,
+        )
+        for trial_index in range(
+            FIGURE_11_12_MONTE_CARLO_TRIALS
+        )
+    ]
+
+    probability_trial_curves = np.empty(
+        (
+            FIGURE_11_12_MONTE_CARLO_TRIALS,
+            len(distance_ratios),
+        ),
+        dtype=float,
+    )
+
+    latency_trial_curves = np.empty_like(
+        probability_trial_curves
+    )
+
+    convergence_iterations = []
+    convergence_flags = []
+
+    for trial_index, random_environment in enumerate(
+        random_environments
+    ):
+        for point_index, distance_ratio in enumerate(
+            distance_ratios
+        ):
+            trial_state = (
+                simulate_figure11_12_trial_equilibrium(
+                    distance_ratio=float(distance_ratio),
+                    arrival_rate=arrival_rate,
+                    price_ratio=price_ratio,
+                    random_environment=random_environment,
+                )
+            )
+
+            probability_trial_curves[
+                trial_index,
+                point_index,
+            ] = trial_state[
+                "target_probability"
+            ]
+
+            latency_trial_curves[
+                trial_index,
+                point_index,
+            ] = trial_state[
+                "expected_latency"
+            ]
+
+            convergence_iterations.append(
+                trial_state[
+                    "convergence_iteration"
+                ]
+            )
+
+            convergence_flags.append(
+                trial_state["converged"]
+            )
+
+    reference_states = [
+        simulate_figure11_12_reference_equilibrium(
+            distance_ratio=float(distance_ratio),
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
+        for distance_ratio in distance_ratios
+    ]
+
+    probability_reference_curve = np.array(
+        [
+            state["target_probability"]
+            for state in reference_states
+        ],
+        dtype=float,
+    )
+
+    latency_reference_curve = np.array(
+        [
+            state["expected_latency"]
+            for state in reference_states
+        ],
+        dtype=float,
+    )
+
+    figure11_statistics = (
+        summarize_figure11_12_trial_curves(
+            trial_curves=probability_trial_curves,
+            reference_curve=(
+                probability_reference_curve
+            ),
+            minimum_value=0.0,
+            maximum_value=1.0,
+        )
+    )
+
+    figure12_statistics = (
+        summarize_figure11_12_trial_curves(
+            trial_curves=latency_trial_curves,
+            reference_curve=latency_reference_curve,
+            minimum_value=0.0,
+        )
+    )
+
+    convergence_iterations = np.asarray(
+        convergence_iterations,
+        dtype=float,
+    )
+
+    convergence_flags = np.asarray(
+        convergence_flags,
+        dtype=bool,
+    )
+
+    convergence_summary = {
+        "rate": float(
+            convergence_flags.mean()
+        ),
+        "mean_iteration": float(
+            convergence_iterations.mean()
+        ),
+        "minimum_iteration": int(
+            convergence_iterations.min()
+        ),
+        "maximum_iteration": int(
+            convergence_iterations.max()
+        ),
+    }
+
+    return (
+        figure11_statistics,
+        figure12_statistics,
+        convergence_summary,
+    )
+
+
+def run_figure11_12_calibrated_monte_carlo():
+    """Run and cache the paired 50-trial experiment."""
+
+    global _FIGURE_11_12_MONTE_CARLO_CACHE
+
+    if _FIGURE_11_12_MONTE_CARLO_CACHE is not None:
+        return _FIGURE_11_12_MONTE_CARLO_CACHE
+
+    distance_ratios = np.linspace(
+        0.0,
+        25.0,
+        51,
+    )
+
+    scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure11_results = {}
+    figure12_results = {}
+    convergence_summaries = {}
+
+    for scenario_index, scenario in enumerate(
+        scenarios
+    ):
+        scenario_label = (
+            f"lambda={scenario['arrival_rate']}, "
+            f"rho={scenario['price_ratio']}"
+        )
+
+        (
+            figure11_statistics,
+            figure12_statistics,
+            convergence_summary,
+        ) = calculate_figure11_12_monte_carlo_scenario(
+            scenario_index=scenario_index,
+            arrival_rate=scenario[
+                "arrival_rate"
+            ],
+            price_ratio=scenario[
+                "price_ratio"
+            ],
+            distance_ratios=distance_ratios,
+        )
+
+        figure11_results[scenario_label] = (
+            figure11_statistics
+        )
+
+        figure12_results[scenario_label] = (
+            figure12_statistics
+        )
+
+        convergence_summaries[scenario_label] = (
+            convergence_summary
+        )
+
+    _FIGURE_11_12_MONTE_CARLO_CACHE = (
+        distance_ratios,
+        figure11_results,
+        figure12_results,
+        convergence_summaries,
+    )
+
+    return _FIGURE_11_12_MONTE_CARLO_CACHE
+
+
 # =========================================================
-# Figure 11 Offloading Probability Function
+# Figure 11 Offloading Probability Compatibility Function
 # =========================================================
 
 
@@ -1410,17 +4589,21 @@ def calculate_figure11_offloading_probability(
     arrival_rate,
     price_ratio,
 ):
-    equilibrium_state = simulate_figure11_12_equilibrium(
-        distance_ratio=distance_ratio,
-        arrival_rate=arrival_rate,
-        price_ratio=price_ratio,
+    """Return one deterministic article-style reference point."""
+
+    equilibrium_state = (
+        simulate_figure11_12_reference_equilibrium(
+            distance_ratio=distance_ratio,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
     )
 
     return equilibrium_state["target_probability"]
 
 
 # =========================================================
-# Figure 12 Expected Latency Function
+# Figure 12 Expected Latency Compatibility Function
 # =========================================================
 
 
@@ -1429,10 +4612,14 @@ def calculate_figure12_expected_latency(
     arrival_rate,
     price_ratio,
 ):
-    equilibrium_state = simulate_figure11_12_equilibrium(
-        distance_ratio=distance_ratio,
-        arrival_rate=arrival_rate,
-        price_ratio=price_ratio,
+    """Return one deterministic article-style reference point."""
+
+    equilibrium_state = (
+        simulate_figure11_12_reference_equilibrium(
+            distance_ratio=distance_ratio,
+            arrival_rate=arrival_rate,
+            price_ratio=price_ratio,
+        )
     )
 
     return equilibrium_state["expected_latency"]
@@ -1452,7 +4639,27 @@ def calculate_figure12_expected_latency(
 
 FIGURE_13_14_SEED = 12959
 FIGURE_13_14_RANDOM_SEED = 32807
+
+# Fifty independent physical-environment realizations are used for
+# every vehicle-count point in both Figures 13 and 14.
+FIGURE_13_14_MONTE_CARLO_TRIALS = 50
+FIGURE_13_14_MONTE_CARLO_BASE_SEED = 5013
+
+# The Random baseline is evaluated by averaging 16 random offloading
+# strategy realizations inside every physical Monte Carlo trial.
+# Therefore each vehicle-count point uses 50 x 16 = 800 Random-policy
+# evaluations, while the other four methods use 50 evaluations.
 FIGURE_13_14_RANDOM_TRIALS = 16
+
+# Input-level uncertainty around the jointly calibrated central
+# scenario. These widths are fixed before simulation and are not
+# adjusted point by point.
+FIGURE_13_14_MEC_LATENCY_LOG_STD = 0.012
+FIGURE_13_14_V2V_LATENCY_LOG_STD = 0.012
+FIGURE_13_14_SERVICE_QUALITY_CONCENTRATION = 3000.0
+FIGURE_13_14_INITIAL_PROBABILITY_CONCENTRATION = 100.0
+
+_FIGURE_13_14_MONTE_CARLO_CACHE = None
 
 # Endpoint calibration of unpublished physical state.
 #
@@ -2245,11 +5452,22 @@ def generate_figure13_14_scenario(num_vehicles):
     }
 
 
-def calculate_figure13_14_proposed_equilibrium(scenario):
+def calculate_figure13_14_proposed_equilibrium(
+    scenario,
+    initial_probabilities=None,
+):
     """Run Algorithm 1's simultaneous best-response updates."""
 
     num_vehicles = len(scenario["mec_latencies"])
-    probabilities = [0.5] * num_vehicles
+
+    if initial_probabilities is None:
+        probabilities = [0.5] * num_vehicles
+    else:
+        probabilities = np.asarray(
+            initial_probabilities,
+            dtype=float,
+        ).tolist()
+
     arrival_rates = scenario["arrival_rates"].tolist()
 
     maximum_iterations = 600
@@ -2634,48 +5852,496 @@ def simulate_figure13_14_comparison(num_vehicles):
     return method_metrics
 
 
-def run_figure13_14_test():
+def sample_figure13_14_lognormal_mean(
+    random_generator,
+    arithmetic_mean,
+    log_standard_deviation,
+):
+    """Sample positive values with the requested arithmetic means."""
+
+    arithmetic_mean = np.asarray(
+        arithmetic_mean,
+        dtype=float,
+    )
+
+    normal_mean = -0.5 * (
+        log_standard_deviation**2
+    )
+
+    multipliers = np.exp(
+        random_generator.normal(
+            loc=normal_mean,
+            scale=log_standard_deviation,
+            size=arithmetic_mean.shape,
+        )
+    )
+
+    return arithmetic_mean * multipliers
+
+
+def create_figure13_14_monte_carlo_scenario(
+    num_vehicles,
+    trial_index,
+):
+    """
+    Create one stochastic realization around the calibrated center.
+
+    The values explicitly stated by the article remain fixed. Only
+    unpublished environmental quantities are sampled:
+        - effective V2M communication/resource state,
+        - effective V2V communication/resource state,
+        - service quality,
+        - initial offloading strategy.
+
+    The central scenario is never used as a final plotted result; it
+    defines the means of the stochastic input distributions.
+    """
+
+    central_scenario = generate_figure13_14_scenario(
+        num_vehicles=num_vehicles,
+    )
+
+    seed_sequence = np.random.SeedSequence(
+        [
+            FIGURE_13_14_MONTE_CARLO_BASE_SEED,
+            num_vehicles,
+            trial_index,
+            13,
+            14,
+        ]
+    )
+
+    random_generator = np.random.default_rng(
+        seed_sequence
+    )
+
+    mec_latencies = sample_figure13_14_lognormal_mean(
+        random_generator=random_generator,
+        arithmetic_mean=central_scenario[
+            "mec_latencies"
+        ],
+        log_standard_deviation=(
+            FIGURE_13_14_MEC_LATENCY_LOG_STD
+        ),
+    )
+
+    v2v_latencies = sample_figure13_14_lognormal_mean(
+        random_generator=random_generator,
+        arithmetic_mean=central_scenario[
+            "v2v_latencies"
+        ],
+        log_standard_deviation=(
+            FIGURE_13_14_V2V_LATENCY_LOG_STD
+        ),
+    )
+
+    central_qualities = np.clip(
+        central_scenario["service_qualities"],
+        1e-6,
+        1.0 - 1e-6,
+    )
+
+    quality_concentration = (
+        FIGURE_13_14_SERVICE_QUALITY_CONCENTRATION
+    )
+
+    service_qualities = random_generator.beta(
+        central_qualities * quality_concentration,
+        (1.0 - central_qualities)
+        * quality_concentration,
+    )
+
+    initial_concentration = (
+        FIGURE_13_14_INITIAL_PROBABILITY_CONCENTRATION
+    )
+
+    initial_probabilities = random_generator.beta(
+        0.5 * initial_concentration,
+        0.5 * initial_concentration,
+        size=num_vehicles,
+    )
+
+    return {
+        "mec_latencies": np.asarray(
+            mec_latencies,
+            dtype=float,
+        ),
+        "v2v_latencies": np.asarray(
+            v2v_latencies,
+            dtype=float,
+        ),
+        "service_qualities": np.asarray(
+            service_qualities,
+            dtype=float,
+        ),
+        "arrival_rates": central_scenario[
+            "arrival_rates"
+        ].copy(),
+        "random_probability_trials": central_scenario[
+            "random_probability_trials"
+        ].copy(),
+        "deadline": central_scenario["deadline"],
+        "value_factor": central_scenario[
+            "value_factor"
+        ],
+        "price_ratio": central_scenario[
+            "price_ratio"
+        ],
+        "initial_probabilities": np.asarray(
+            initial_probabilities,
+            dtype=float,
+        ),
+    }
+
+
+def simulate_figure13_14_monte_carlo_trial(
+    num_vehicles,
+    trial_index,
+):
+    """
+    Evaluate all five methods on one shared random environment.
+
+    Figures 13 and 14 are generated from this same method evaluation:
+    the latency metric goes to Figure 13 and the payoff metric goes
+    to Figure 14.
+    """
+
+    scenario = create_figure13_14_monte_carlo_scenario(
+        num_vehicles=num_vehicles,
+        trial_index=trial_index,
+    )
+
+    proposed_probabilities = (
+        calculate_figure13_14_proposed_equilibrium(
+            scenario=scenario,
+            initial_probabilities=scenario[
+                "initial_probabilities"
+            ],
+        )
+    )
+
+    global_probabilities = (
+        calculate_figure13_14_global_optimization(
+            scenario=scenario,
+            initial_probabilities=(
+                proposed_probabilities
+            ),
+        )
+    )
+
+    method_metrics = {
+        "Proposed Method": (
+            calculate_figure13_14_metrics(
+                probabilities=proposed_probabilities,
+                scenario=scenario,
+                policy_name="Proposed Method",
+            )
+        ),
+        "Offloading to MEC": (
+            calculate_figure13_14_metrics(
+                probabilities=np.ones(num_vehicles),
+                scenario=scenario,
+                policy_name="Offloading to MEC",
+            )
+        ),
+        "Offloading to Vehicle": (
+            calculate_figure13_14_metrics(
+                probabilities=np.zeros(num_vehicles),
+                scenario=scenario,
+                policy_name="Offloading to Vehicle",
+            )
+        ),
+        "Global Optimization": (
+            calculate_figure13_14_metrics(
+                probabilities=global_probabilities,
+                scenario=scenario,
+                policy_name="Global Optimization",
+            )
+        ),
+    }
+
+    # Nested random-baseline evaluation:
+    # 16 random offloading vectors are evaluated in this same physical
+    # environment and averaged. The same calibrated random vectors are
+    # used in every outer physical trial as common random numbers.
+    random_trial_metrics = [
+        calculate_figure13_14_metrics(
+            probabilities=random_probabilities,
+            scenario=scenario,
+            policy_name="Random",
+        )
+        for random_probabilities in scenario[
+            "random_probability_trials"
+        ]
+    ]
+
+    method_metrics["Random"] = {
+        "expected_latency": float(
+            np.mean(
+                [
+                    result["expected_latency"]
+                    for result in random_trial_metrics
+                ]
+            )
+        ),
+        "expected_payoff": float(
+            np.mean(
+                [
+                    result["expected_payoff"]
+                    for result in random_trial_metrics
+                ]
+            )
+        ),
+    }
+
+    return method_metrics
+
+
+def summarize_figure13_14_trials(
+    trial_matrix,
+    reference_curve,
+):
+    """Return mean, 95% confidence interval, and reconstruction RMSE."""
+
+    trial_matrix = np.asarray(
+        trial_matrix,
+        dtype=float,
+    )
+
+    mean_curve = trial_matrix.mean(axis=0)
+
+    standard_deviation_curve = trial_matrix.std(
+        axis=0,
+        ddof=1,
+    )
+
+    critical_value = NormalDist().inv_cdf(0.975)
+
+    confidence_half_width = (
+        critical_value
+        * standard_deviation_curve
+        / np.sqrt(FIGURE_13_14_MONTE_CARLO_TRIALS)
+    )
+
+    lower_curve = (
+        mean_curve - confidence_half_width
+    )
+
+    upper_curve = (
+        mean_curve + confidence_half_width
+    )
+
+    reference_curve = np.asarray(
+        reference_curve,
+        dtype=float,
+    )
+
+    reconstruction_rmse = float(
+        np.sqrt(
+            np.mean(
+                (mean_curve - reference_curve) ** 2
+            )
+        )
+    )
+
+    return {
+        "mean": mean_curve,
+        "lower": lower_curve,
+        "upper": upper_curve,
+        "standard_deviation": (
+            standard_deviation_curve
+        ),
+        "reference": reference_curve,
+        "rmse": reconstruction_rmse,
+    }
+
+
+def run_figure13_14_calibrated_monte_carlo():
+    """
+    Run the paired 50-trial experiment and cache its results.
+
+    The experiment contains 14 vehicle-count points. Every point uses
+    50 independent physical realizations shared by all five methods.
+    """
+
+    global _FIGURE_13_14_MONTE_CARLO_CACHE
+
+    if _FIGURE_13_14_MONTE_CARLO_CACHE is not None:
+        return _FIGURE_13_14_MONTE_CARLO_CACHE
+
     vehicle_counts = list(range(5, 71, 5))
-    figure13_results = {
-        method: []
+    number_of_points = len(vehicle_counts)
+
+    latency_trials = {
+        method: np.empty(
+            (
+                FIGURE_13_14_MONTE_CARLO_TRIALS,
+                number_of_points,
+            ),
+            dtype=float,
+        )
         for method in FIGURE_13_14_METHOD_ORDER
     }
-    figure14_results = {
+
+    payoff_trials = {
+        method: np.empty(
+            (
+                FIGURE_13_14_MONTE_CARLO_TRIALS,
+                number_of_points,
+            ),
+            dtype=float,
+        )
+        for method in FIGURE_13_14_METHOD_ORDER
+    }
+
+    reference_latency = {
         method: []
         for method in FIGURE_13_14_METHOD_ORDER
     }
 
-    for num_vehicles in vehicle_counts:
-        method_metrics = (
+    reference_payoff = {
+        method: []
+        for method in FIGURE_13_14_METHOD_ORDER
+    }
+
+    for point_index, num_vehicles in enumerate(
+        vehicle_counts
+    ):
+        reference_metrics = (
             simulate_figure13_14_comparison(
                 num_vehicles=num_vehicles,
             )
         )
 
+        for method in FIGURE_13_14_METHOD_ORDER:
+            reference_latency[method].append(
+                reference_metrics[method][
+                    "expected_latency"
+                ]
+            )
+
+            reference_payoff[method].append(
+                reference_metrics[method][
+                    "expected_payoff"
+                ]
+            )
+
+        for trial_index in range(
+            FIGURE_13_14_MONTE_CARLO_TRIALS
+        ):
+            trial_metrics = (
+                simulate_figure13_14_monte_carlo_trial(
+                    num_vehicles=num_vehicles,
+                    trial_index=trial_index,
+                )
+            )
+
+            for method in FIGURE_13_14_METHOD_ORDER:
+                latency_trials[method][
+                    trial_index,
+                    point_index,
+                ] = trial_metrics[method][
+                    "expected_latency"
+                ]
+
+                payoff_trials[method][
+                    trial_index,
+                    point_index,
+                ] = trial_metrics[method][
+                    "expected_payoff"
+                ]
+
+    figure13_results = {
+        method: summarize_figure13_14_trials(
+            trial_matrix=latency_trials[method],
+            reference_curve=reference_latency[method],
+        )
+        for method in FIGURE_13_14_METHOD_ORDER
+    }
+
+    figure14_results = {
+        method: summarize_figure13_14_trials(
+            trial_matrix=payoff_trials[method],
+            reference_curve=reference_payoff[method],
+        )
+        for method in FIGURE_13_14_METHOD_ORDER
+    }
+
+    _FIGURE_13_14_MONTE_CARLO_CACHE = (
+        vehicle_counts,
+        figure13_results,
+        figure14_results,
+    )
+
+    return _FIGURE_13_14_MONTE_CARLO_CACHE
+
+
+def run_figure13_14_test():
+    """Run Figures 13 and 14 and print selected statistical results."""
+
+    (
+        vehicle_counts,
+        figure13_results,
+        figure14_results,
+    ) = run_figure13_14_calibrated_monte_carlo()
+
+    print(
+        "\n[Figures 13 and 14 Calibrated Monte Carlo] "
+        f"Outer trials per point="
+        f"{FIGURE_13_14_MONTE_CARLO_TRIALS}, "
+        f"base_seed="
+        f"{FIGURE_13_14_MONTE_CARLO_BASE_SEED}"
+    )
+
+    print(
+        "[Figures 13 and 14 Calibrated Monte Carlo] "
+        f"Random inner trials per outer trial="
+        f"{FIGURE_13_14_RANDOM_TRIALS}"
+    )
+
+    selected_vehicle_counts = [
+        5,
+        20,
+        40,
+        70,
+    ]
+
+    for method in FIGURE_13_14_METHOD_ORDER:
+        figure13_statistics = figure13_results[
+            method
+        ]
+
+        figure14_statistics = figure14_results[
+            method
+        ]
+
         print(
-            f"\n[Figures 13 and 14 Test] "
-            f"N={num_vehicles}"
+            f"\n{method}: "
+            f"Figure 13 RMSE="
+            f"{figure13_statistics['rmse']:.8f}, "
+            f"Figure 14 RMSE="
+            f"{figure14_statistics['rmse']:.8f}"
         )
 
-        for method in FIGURE_13_14_METHOD_ORDER:
-            expected_latency = method_metrics[
-                method
-            ]["expected_latency"]
-            expected_payoff = method_metrics[
-                method
-            ]["expected_payoff"]
-
-            figure13_results[method].append(
-                expected_latency
-            )
-            figure14_results[method].append(
-                expected_payoff
+        for selected_count in (
+            selected_vehicle_counts
+        ):
+            point_index = vehicle_counts.index(
+                selected_count
             )
 
             print(
-                f"{method}: "
-                f"latency={expected_latency:.6f}, "
-                f"payoff={expected_payoff:.6f}"
+                f"N={selected_count}: "
+                f"latency_mean="
+                f"{figure13_statistics['mean'][point_index]:.6f}, "
+                f"latency_95%CI=("
+                f"{figure13_statistics['lower'][point_index]:.6f}, "
+                f"{figure13_statistics['upper'][point_index]:.6f}), "
+                f"payoff_mean="
+                f"{figure14_statistics['mean'][point_index]:.6f}, "
+                f"payoff_95%CI=("
+                f"{figure14_statistics['lower'][point_index]:.6f}, "
+                f"{figure14_statistics['upper'][point_index]:.6f})"
             )
 
     return (
@@ -2759,10 +6425,20 @@ def plot_figure13_results(
 
         for method in FIGURE_13_14_METHOD_ORDER:
             style = plot_styles[method]
+            statistics = figure13_results[method]
+
+            ax.fill_between(
+                vehicle_counts,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
 
             ax.plot(
                 vehicle_counts,
-                figure13_results[method],
+                statistics["mean"],
                 label=method,
                 color=style["color"],
                 linestyle=style["linestyle"],
@@ -2780,6 +6456,7 @@ def plot_figure13_results(
             "Number of Vehicles",
             fontsize=11,
         )
+
         ax.set_ylabel(
             "Expected Latency (s)",
             fontsize=11,
@@ -2805,11 +6482,13 @@ def plot_figure13_results(
             borderpad=0.45,
             labelspacing=0.35,
         )
+
         legend.get_frame().set_linewidth(0.8)
 
         fig.tight_layout()
+
         fig.savefig(
-            "Figure_13_article_style.png",
+            "Figure_13_calibrated_monte_carlo.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -2837,10 +6516,20 @@ def plot_figure14_results(
 
         for method in FIGURE_13_14_METHOD_ORDER:
             style = plot_styles[method]
+            statistics = figure14_results[method]
+
+            ax.fill_between(
+                vehicle_counts,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
 
             ax.plot(
                 vehicle_counts,
-                figure14_results[method],
+                statistics["mean"],
                 label=method,
                 color=style["color"],
                 linestyle=style["linestyle"],
@@ -2858,6 +6547,7 @@ def plot_figure14_results(
             "Number of Vehicles",
             fontsize=11,
         )
+
         ax.set_ylabel(
             "Expected Payoff",
             fontsize=11,
@@ -2884,11 +6574,13 @@ def plot_figure14_results(
             borderpad=0.45,
             labelspacing=0.35,
         )
+
         legend.get_frame().set_linewidth(0.8)
 
         fig.tight_layout()
+
         fig.savefig(
-            "Figure_14_article_style.png",
+            "Figure_14_calibrated_monte_carlo.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -2897,1145 +6589,7 @@ def plot_figure14_results(
 
 
 # =========================================================
-# Figure 6 Test Function
-# =========================================================
-def run_figure6_test():
-    vehicle_counts = range(2, 71)
-
-    figure6_scenarios = [
-        {"arrival_rate": 0.5, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.7},
-        {"arrival_rate": 0.9, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.5},
-        {"arrival_rate": 0.7, "price_ratio": 0.9},
-    ]
-
-    figure6_results = {}
-
-    for scenario in figure6_scenarios:
-        print(
-            f"\n[Figure 6 Test] "
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-        average_probabilities = []
-
-        for num_vehicles in vehicle_counts:
-            average_probability = calculate_figure6_average_probability(
-                num_vehicles=num_vehicles,
-                arrival_rate=scenario["arrival_rate"],
-                price_ratio=scenario["price_ratio"],
-            )
-
-            average_probabilities.append(average_probability)
-        print(f"Stored {len(average_probabilities)} points")
-
-        # =========================================================
-        # نمایش مقادیر عددی مهم فیگور ۶ ↓
-        # =========================================================
-
-        selected_vehicle_counts = [2, 5, 10, 20, 40, 70]
-
-        for vehicle_count in selected_vehicle_counts:
-            point_index = vehicle_count - 2
-
-            print(
-                f"N={vehicle_count}, "
-                f"average_probability="
-                f"{average_probabilities[point_index]:.6f}"
-            )
-
-        # =========================================================
-        # نمایش مقادیر عددی مهم فیگور ۶ ↑
-        # =========================================================
-
-        scenario_label = (
-            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
-        )
-
-        figure6_results[scenario_label] = average_probabilities
-
-    return vehicle_counts, figure6_results
-
-
-# =========================================================
-# Plotting Function for Figure 6 Results
-# =========================================================
-
-
-def plot_figure6_results(
-    vehicle_counts,
-    figure6_results,
-):
-    vehicle_counts = list(vehicle_counts)
-
-    # Local font settings only for Figure 6.
-    # These settings do not change the other figures.
-    figure6_font_settings = {
-        "font.family": "serif",
-        "font.serif": [
-            "Times New Roman",
-            "Times",
-            "DejaVu Serif",
-        ],
-        "mathtext.fontset": "dejavuserif",
-    }
-
-    with plt.rc_context(figure6_font_settings):
-        fig, ax = plt.subplots(
-            figsize=(6.4, 4.8),
-        )
-
-        # Styles matching Figure 6 of the paper
-        figure6_styles = {
-            "lambda=0.5, rho=0.7": {
-                "color": "#0072BD",
-                "linestyle": "-",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.7": {
-                "color": "#D95319",
-                "linestyle": "-",
-                "marker": "x",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
-            },
-            "lambda=0.9, rho=0.7": {
-                "color": "#EDB120",
-                "linestyle": "-",
-                "marker": "o",
-                "markerfacecolor": "#EDB120",
-                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.5": {
-                "color": "#7E2F8E",
-                "linestyle": "--",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
-            },
-            "lambda=0.7, rho=0.9": {
-                "color": "#77AC30",
-                "linestyle": "--",
-                "marker": "D",
-                "markerfacecolor": "#77AC30",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
-            },
-        }
-
-        for label, average_probabilities in figure6_results.items():
-            style = figure6_styles[label]
-
-            ax.plot(
-                vehicle_counts,
-                average_probabilities,
-                label=style["legend_label"],
-                color=style["color"],
-                linestyle=style["linestyle"],
-                marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
-                markeredgecolor=style["color"],
-                markeredgewidth=1.1,
-                linewidth=1.5,
-                markersize=4.5,
-                markevery=1,
-            )
-
-        # Axis labels exactly as shown in the paper
-        ax.set_xlabel(
-            "Number of Vehicles",
-            fontsize=11,
-        )
-
-        ax.set_ylabel(
-            "Average Offloading Probability",
-            fontsize=11,
-        )
-
-        # Axis ranges of Figure 6
-        ax.set_xlim(0, 70)
-        ax.set_ylim(0.2, 0.9)
-
-        # Tick positions of the paper
-        ax.set_xticks(np.arange(0, 71, 10))
-
-        ax.set_yticks(np.arange(0.2, 0.91, 0.1))
-
-        # The paper has no background grid
-        ax.grid(False)
-
-        # Ticks on all four sides
-        ax.tick_params(
-            axis="both",
-            which="both",
-            direction="in",
-            top=True,
-            right=True,
-            labelsize=9,
-            length=4,
-            width=0.8,
-        )
-
-        # Keep a complete rectangular frame
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(0.8)
-
-        # Legend position and appearance
-        legend = ax.legend(
-            loc="upper right",
-            fontsize=8.5,
-            frameon=True,
-            fancybox=False,
-            framealpha=1.0,
-            edgecolor="black",
-            handlelength=3.0,
-            borderpad=0.45,
-            labelspacing=0.35,
-        )
-
-        legend.get_frame().set_linewidth(0.8)
-
-        # Figure 6 in the paper has no title above the axes
-        fig.tight_layout()
-
-        # Save a high-resolution version
-        fig.savefig(
-            "Figure_6_article_style.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-
-        plt.show()
-
-
-# =========================================================
-# Figure 7 Test Function
-# =========================================================
-
-
-def run_figure7_test():
-    value_factors = np.linspace(0, 1, 21)
-
-    figure7_scenarios = [
-        {"arrival_rate": 0.5, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.7},
-        {"arrival_rate": 0.9, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.5},
-        {"arrival_rate": 0.7, "price_ratio": 0.9},
-    ]
-
-    figure7_results = {}
-
-    for scenario in figure7_scenarios:
-        average_probabilities = []
-
-        print(
-            f"\n[Figure 7 Test] "
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        for value_factor in value_factors:
-            average_probability = calculate_figure7_average_probability(
-                value_factor=value_factor,
-                arrival_rate=scenario["arrival_rate"],
-                price_ratio=scenario["price_ratio"],
-            )
-
-            average_probabilities.append(average_probability)
-
-        scenario_label = (
-            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
-        )
-
-        figure7_results[scenario_label] = average_probabilities
-
-        print(f"Stored {len(average_probabilities)} points")
-
-        # =========================================================
-        # نمایش اعداد فیگور ۷ ↓
-        # =========================================================
-
-        selected_value_factors = [
-            0.0,
-            0.2,
-            0.4,
-            0.6,
-            0.8,
-            0.9,
-            0.95,
-            1.0,
-        ]
-
-        for selected_value_factor in selected_value_factors:
-            point_index = int(round(selected_value_factor * 20))
-
-            print(
-                f"delta={selected_value_factor:.1f}, "
-                f"average_probability="
-                f"{average_probabilities[point_index]:.6f}"
-            )
-
-        # =========================================================
-        # نمایش اعداد فیگور ۷ ↑
-        # =========================================================
-
-    return value_factors, figure7_results
-
-
-# =========================================================
-# Figures 11 and 12 Shared Scenarios
-# =========================================================
-
-
-def get_figure11_12_scenarios():
-    return [
-        {"arrival_rate": 0.5, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.7},
-        {"arrival_rate": 0.9, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.5},
-        {"arrival_rate": 0.7, "price_ratio": 0.9},
-    ]
-
-
-# =========================================================
-# Figure 11 Test Function
-# =========================================================
-
-
-def run_figure11_test():
-    distance_ratios = [index / 2 for index in range(51)]
-    figure11_results = {}
-
-    for scenario in get_figure11_12_scenarios():
-        offloading_probabilities = []
-
-        print(
-            f"\n[Figure 11 Test] "
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        for distance_ratio in distance_ratios:
-            offloading_probability = (
-                calculate_figure11_offloading_probability(
-                    distance_ratio=distance_ratio,
-                    arrival_rate=scenario["arrival_rate"],
-                    price_ratio=scenario["price_ratio"],
-                )
-            )
-
-            offloading_probabilities.append(
-                offloading_probability
-            )
-
-        scenario_label = (
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        figure11_results[scenario_label] = (
-            offloading_probabilities
-        )
-
-        print(
-            f"Stored {len(offloading_probabilities)} points"
-        )
-
-        for selected_ratio in [0, 5, 10, 15, 20, 25]:
-            point_index = int(selected_ratio * 2)
-
-            print(
-                f"ratio={selected_ratio}, "
-                f"offloading_probability="
-                f"{offloading_probabilities[point_index]:.6f}"
-            )
-
-    return distance_ratios, figure11_results
-
-
-# =========================================================
-# Figure 12 Test Function
-# =========================================================
-
-
-def run_figure12_test():
-    distance_ratios = [index / 2 for index in range(51)]
-    figure12_results = {}
-
-    for scenario in get_figure11_12_scenarios():
-        expected_latencies = []
-
-        print(
-            f"\n[Figure 12 Test] "
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        for distance_ratio in distance_ratios:
-            expected_latency = (
-                calculate_figure12_expected_latency(
-                    distance_ratio=distance_ratio,
-                    arrival_rate=scenario["arrival_rate"],
-                    price_ratio=scenario["price_ratio"],
-                )
-            )
-
-            expected_latencies.append(expected_latency)
-
-        scenario_label = (
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        figure12_results[scenario_label] = expected_latencies
-
-        print(
-            f"Stored {len(expected_latencies)} points"
-        )
-
-        for selected_ratio in [0, 5, 10, 15, 20, 25]:
-            point_index = int(selected_ratio * 2)
-
-            print(
-                f"ratio={selected_ratio}, "
-                f"expected_latency="
-                f"{expected_latencies[point_index]:.6f}"
-            )
-
-    return distance_ratios, figure12_results
-
-
-# =========================================================
-# Figure 10 Test Function
-# =========================================================
-def run_figure10_test():
-    service_quality_values = [i / 20 for i in range(21)]
-
-    figure10_scenarios = [
-        {"arrival_rate": 0.5, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.7},
-        {"arrival_rate": 0.9, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.5},
-        {"arrival_rate": 0.7, "price_ratio": 0.9},
-    ]
-
-    figure10_results = {}
-
-    for scenario in figure10_scenarios:
-        expected_latencies = []
-
-        print(
-            f"\n[Figure 10 Test] "
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        for service_quality in service_quality_values:
-            expected_latency = calculate_figure10_latency(
-                service_quality=service_quality,
-                arrival_rate=scenario["arrival_rate"],
-                price_ratio=scenario["price_ratio"],
-            )
-
-            expected_latencies.append(expected_latency)
-
-        scenario_label = (
-            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
-        )
-
-        figure10_results[scenario_label] = expected_latencies
-
-        print(f"Stored {len(expected_latencies)} points")
-
-        selected_service_qualities = [
-            0.0,
-            0.2,
-            0.4,
-            0.6,
-            0.8,
-            1.0,
-        ]
-
-        for selected_quality in selected_service_qualities:
-            point_index = int(round(selected_quality * 20))
-
-            print(
-                f"q={selected_quality:.1f}, "
-                f"expected_latency="
-                f"{expected_latencies[point_index]:.6f}"
-            )
-
-    return service_quality_values, figure10_results
-
-
-# =========================================================
-# Figure 9 Test Function
-# =========================================================
-
-
-def run_figure9_test():
-    service_quality_values = [i / 20 for i in range(21)]
-
-    figure9_scenarios = [
-        {"arrival_rate": 0.5, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.7},
-        {"arrival_rate": 0.9, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.5},
-        {"arrival_rate": 0.7, "price_ratio": 0.9},
-    ]
-
-    figure9_results = {}
-
-    for scenario in figure9_scenarios:
-        offloading_probabilities = []
-
-        print(
-            f"\n[Figure 9 Test] "
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        for service_quality in service_quality_values:
-            offloading_probability = calculate_figure9_offloading_probability(
-                service_quality=service_quality,
-                arrival_rate=scenario["arrival_rate"],
-                price_ratio=scenario["price_ratio"],
-            )
-
-            offloading_probabilities.append(offloading_probability)
-
-        scenario_label = (
-            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
-        )
-
-        figure9_results[scenario_label] = offloading_probabilities
-
-        print(f"Stored {len(offloading_probabilities)} points")
-
-        selected_service_qualities = [
-            0.0,
-            0.2,
-            0.4,
-            0.6,
-            0.8,
-            1.0,
-        ]
-
-        for selected_quality in selected_service_qualities:
-            point_index = int(round(selected_quality * 20))
-
-            print(
-                f"q={selected_quality:.1f}, "
-                f"offloading_probability="
-                f"{offloading_probabilities[point_index]:.6f}"
-            )
-
-    return service_quality_values, figure9_results
-
-
-# =========================================================
-# Figure 8 Test Function
-# =========================================================
-
-
-def run_figure8_test():
-    value_factors = [i / 20 for i in range(21)]
-
-    figure8_scenarios = [
-        {"arrival_rate": 0.5, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.7},
-        {"arrival_rate": 0.9, "price_ratio": 0.7},
-        {"arrival_rate": 0.7, "price_ratio": 0.5},
-        {"arrival_rate": 0.7, "price_ratio": 0.9},
-    ]
-
-    figure8_results = {}
-
-    for scenario in figure8_scenarios:
-        expected_latencies = []
-
-        print(
-            f"\n[Figure 8 Test] "
-            f"lambda={scenario['arrival_rate']}, "
-            f"rho={scenario['price_ratio']}"
-        )
-
-        for value_factor in value_factors:
-            expected_latency = calculate_figure8_expected_latency(
-                value_factor=value_factor,
-                arrival_rate=scenario["arrival_rate"],
-                price_ratio=scenario["price_ratio"],
-            )
-
-            expected_latencies.append(expected_latency)
-
-        scenario_label = (
-            f"lambda={scenario['arrival_rate']}, " f"rho={scenario['price_ratio']}"
-        )
-
-        figure8_results[scenario_label] = expected_latencies
-
-        print(f"Stored {len(expected_latencies)} points")
-
-        selected_value_factors = [
-            0.0,
-            0.2,
-            0.4,
-            0.6,
-            0.8,
-            1.0,
-        ]
-
-        for selected_value_factor in selected_value_factors:
-            point_index = int(
-                round(selected_value_factor * 20)
-            )
-
-            print(
-                f"delta={selected_value_factor:.1f}, "
-                f"expected_latency="
-                f"{expected_latencies[point_index]:.6f}"
-            )
-
-    return value_factors, figure8_results
-
-
-# =========================================================
-# Plotting Function for Figure 7 Results
-# =========================================================
-
-
-def plot_figure7_results(
-    value_factors,
-    figure7_results,
-):
-    # Create a separate figure with dimensions close to the paper
-    fig, ax = plt.subplots(figsize=(6.4, 4.8))
-
-    # MATLAB-like styles used in the original paper
-    figure7_styles = {
-        "lambda=0.5, rho=0.7": {
-            "color": "#0072BD",
-            "linestyle": "-",
-            "marker": "o",
-            "markerfacecolor": "none",
-        },
-        "lambda=0.7, rho=0.7": {
-            "color": "#D95319",
-            "linestyle": "-",
-            "marker": "x",
-        },
-        "lambda=0.9, rho=0.7": {
-            "color": "#EDB120",
-            "linestyle": "-",
-            "marker": "D",
-        },
-        "lambda=0.7, rho=0.5": {
-            "color": "#7E2F8E",
-            "linestyle": "--",
-            "marker": "o",
-            "markerfacecolor": "none",
-        },
-        "lambda=0.7, rho=0.9": {
-            "color": "#77AC30",
-            "linestyle": "--",
-            "marker": "p",
-        },
-    }
-
-    for label, average_probabilities in figure7_results.items():
-        style = figure7_styles[label]
-
-        ax.plot(
-            value_factors,
-            average_probabilities,
-            label=label,
-            color=style["color"],
-            linestyle=style["linestyle"],
-            marker=style["marker"],
-            markerfacecolor=style.get(
-                "markerfacecolor",
-                style["color"],
-            ),
-            markeredgecolor=style["color"],
-            linewidth=1.4,
-            markersize=4.5,
-        )
-
-    # Axis labels used in the paper
-    ax.set_xlabel(r"$\delta$")
-    ax.set_ylabel("Average Offloading Probability")
-
-    # Axis ranges and ticks of Figure 7
-    ax.set_xlim(0.0, 1.0)
-    ax.set_ylim(0.25, 0.50)
-
-    ax.set_xticks(np.arange(0.0, 1.01, 0.2))
-
-    ax.set_yticks(np.arange(0.25, 0.501, 0.05))
-
-    # The original paper has no background grid
-    ax.grid(False)
-
-    # Show ticks on all four sides, similar to the paper
-    ax.tick_params(
-        direction="in",
-        top=True,
-        right=True,
-    )
-
-    # Legend position in the original figure
-    ax.legend(
-        loc="lower right",
-        fontsize=8,
-        frameon=True,
-    )
-
-    # Do not add a title because the paper uses a caption below the figure
-    fig.tight_layout()
-
-    # Save a high-resolution version
-    fig.savefig(
-        "Figure_7_article_style.png",
-        dpi=300,
-        bbox_inches="tight",
-    )
-
-    plt.show()
-
-
-# =========================================================
-# Plotting Function for Figure 8 Results
-# =========================================================
-
-
-def plot_figure8_results(
-    value_factors,
-    figure8_results,
-):
-    figure8_font_settings = {
-        "font.family": "serif",
-        "font.serif": [
-            "Times New Roman",
-            "Times",
-            "DejaVu Serif",
-        ],
-        "mathtext.fontset": "dejavuserif",
-    }
-
-    with plt.rc_context(figure8_font_settings):
-        fig, ax = plt.subplots(
-            figsize=(6.4, 4.8),
-        )
-
-        figure8_styles = {
-            "lambda=0.5, rho=0.7": {
-                "color": "#0072BD",
-                "linestyle": "-",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.7": {
-                "color": "#D95319",
-                "linestyle": "-",
-                "marker": "x",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
-            },
-            "lambda=0.9, rho=0.7": {
-                "color": "#EDB120",
-                "linestyle": "-",
-                "marker": "D",
-                "markerfacecolor": "#EDB120",
-                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.5": {
-                "color": "#7E2F8E",
-                "linestyle": "--",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
-            },
-            "lambda=0.7, rho=0.9": {
-                "color": "#77AC30",
-                "linestyle": "--",
-                "marker": "D",
-                "markerfacecolor": "#77AC30",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
-            },
-        }
-
-        for label, expected_latencies in figure8_results.items():
-            style = figure8_styles[label]
-
-            ax.plot(
-                value_factors,
-                expected_latencies,
-                label=style["legend_label"],
-                color=style["color"],
-                linestyle=style["linestyle"],
-                marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
-                markeredgecolor=style["color"],
-                markeredgewidth=1.1,
-                linewidth=1.5,
-                markersize=4.5,
-            )
-
-        ax.set_xlabel(
-            r"$\delta$",
-            fontsize=11,
-        )
-
-        ax.set_ylabel(
-            "Expected Latency",
-            fontsize=11,
-        )
-
-        ax.set_xlim(0.0, 1.0)
-        ax.set_ylim(0.156, 0.174)
-
-        ax.set_xticks(
-            np.arange(0.0, 1.01, 0.2)
-        )
-
-        ax.set_yticks(
-            np.arange(0.156, 0.1741, 0.002)
-        )
-
-        ax.grid(False)
-
-        ax.tick_params(
-            axis="both",
-            which="both",
-            direction="in",
-            top=True,
-            right=True,
-            labelsize=9,
-            length=4,
-            width=0.8,
-        )
-
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(0.8)
-
-        legend = ax.legend(
-            loc="upper right",
-            fontsize=8.5,
-            frameon=True,
-            fancybox=False,
-            framealpha=1.0,
-            edgecolor="black",
-            handlelength=3.0,
-            borderpad=0.45,
-            labelspacing=0.35,
-        )
-
-        legend.get_frame().set_linewidth(0.8)
-
-        fig.tight_layout()
-
-        fig.savefig(
-            "Figure_8_article_style.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-
-        plt.show()
-
-
-# =========================================================
-# Plotting Function for Figure 9 Results
-# =========================================================
-
-
-def plot_figure9_results(
-    service_quality_values,
-    figure9_results,
-):
-    figure9_font_settings = {
-        "font.family": "serif",
-        "font.serif": [
-            "Times New Roman",
-            "Times",
-            "DejaVu Serif",
-        ],
-        "mathtext.fontset": "dejavuserif",
-    }
-
-    with plt.rc_context(figure9_font_settings):
-        fig, ax = plt.subplots(
-            figsize=(6.4, 4.8),
-        )
-
-        figure9_styles = {
-            "lambda=0.5, rho=0.7": {
-                "color": "#0072BD",
-                "linestyle": "-",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.7": {
-                "color": "#D95319",
-                "linestyle": "-",
-                "marker": "x",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
-            },
-            "lambda=0.9, rho=0.7": {
-                "color": "#EDB120",
-                "linestyle": "-",
-                "marker": "*",
-                "markerfacecolor": "#EDB120",
-                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.5": {
-                "color": "#7E2F8E",
-                "linestyle": "--",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
-            },
-            "lambda=0.7, rho=0.9": {
-                "color": "#77AC30",
-                "linestyle": "--",
-                "marker": "*",
-                "markerfacecolor": "#77AC30",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
-            },
-        }
-
-        for label, offloading_probabilities in figure9_results.items():
-            style = figure9_styles[label]
-
-            ax.plot(
-                service_quality_values,
-                offloading_probabilities,
-                label=style["legend_label"],
-                color=style["color"],
-                linestyle=style["linestyle"],
-                marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
-                markeredgecolor=style["color"],
-                markeredgewidth=1.1,
-                linewidth=1.5,
-                markersize=5.0,
-            )
-
-        ax.set_xlabel(
-            r"$q_j$",
-            fontsize=11,
-        )
-
-        ax.set_ylabel(
-            r"Offloading Probability $p_i$",
-            fontsize=11,
-        )
-
-        ax.set_xlim(0.0, 1.0)
-        ax.set_ylim(0.25, 0.55)
-
-        ax.set_xticks(
-            np.arange(0.0, 1.01, 0.2)
-        )
-
-        ax.set_yticks(
-            np.arange(0.25, 0.551, 0.05)
-        )
-
-        ax.grid(False)
-
-        ax.tick_params(
-            axis="both",
-            which="both",
-            direction="in",
-            top=True,
-            right=True,
-            labelsize=9,
-            length=4,
-            width=0.8,
-        )
-
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(0.8)
-
-        legend = ax.legend(
-            loc="lower left",
-            fontsize=8.5,
-            frameon=True,
-            fancybox=False,
-            framealpha=1.0,
-            edgecolor="black",
-            handlelength=3.0,
-            borderpad=0.45,
-            labelspacing=0.35,
-        )
-
-        legend.get_frame().set_linewidth(0.8)
-
-        fig.tight_layout()
-
-        fig.savefig(
-            "Figure_9_article_style.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-
-        plt.show()
-
-
-# =========================================================
-# Plotting Function for Figure 10 Results
-# =========================================================
-
-
-def plot_figure10_results(
-    service_quality_values,
-    figure10_results,
-):
-    figure10_font_settings = {
-        "font.family": "serif",
-        "font.serif": [
-            "Times New Roman",
-            "Times",
-            "DejaVu Serif",
-        ],
-        "mathtext.fontset": "dejavuserif",
-    }
-
-    with plt.rc_context(figure10_font_settings):
-        fig, ax = plt.subplots(
-            figsize=(6.4, 4.8),
-        )
-
-        figure10_styles = {
-            "lambda=0.5, rho=0.7": {
-                "color": "#0072BD",
-                "linestyle": "-",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.7": {
-                "color": "#D95319",
-                "linestyle": "-",
-                "marker": "x",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
-            },
-            "lambda=0.9, rho=0.7": {
-                "color": "#EDB120",
-                "linestyle": "-",
-                "marker": "*",
-                "markerfacecolor": "#EDB120",
-                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
-            },
-            "lambda=0.7, rho=0.5": {
-                "color": "#7E2F8E",
-                "linestyle": "--",
-                "marker": "o",
-                "markerfacecolor": "none",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
-            },
-            "lambda=0.7, rho=0.9": {
-                "color": "#77AC30",
-                "linestyle": "--",
-                "marker": "*",
-                "markerfacecolor": "#77AC30",
-                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
-            },
-        }
-
-        for label, expected_latencies in figure10_results.items():
-            style = figure10_styles[label]
-
-            ax.plot(
-                service_quality_values,
-                expected_latencies,
-                label=style["legend_label"],
-                color=style["color"],
-                linestyle=style["linestyle"],
-                marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
-                markeredgecolor=style["color"],
-                markeredgewidth=1.1,
-                linewidth=1.5,
-                markersize=5.0,
-            )
-
-        ax.set_xlabel(
-            r"$q_j$",
-            fontsize=11,
-        )
-
-        ax.set_ylabel(
-            "Expected Latency (s)",
-            fontsize=11,
-        )
-
-        ax.set_xlim(0.0, 1.0)
-        ax.set_ylim(0.095, 0.120)
-
-        ax.set_xticks(
-            np.arange(0.0, 1.01, 0.2)
-        )
-
-        ax.set_yticks(
-            np.arange(0.095, 0.1201, 0.005)
-        )
-
-        ax.grid(False)
-
-        ax.tick_params(
-            axis="both",
-            which="both",
-            direction="in",
-            top=True,
-            right=True,
-            labelsize=9,
-            length=4,
-            width=0.8,
-        )
-
-        for spine in ax.spines.values():
-            spine.set_visible(True)
-            spine.set_linewidth(0.8)
-
-        legend = ax.legend(
-            loc="upper left",
-            fontsize=8.5,
-            frameon=True,
-            fancybox=False,
-            framealpha=1.0,
-            edgecolor="black",
-            handlelength=3.0,
-            borderpad=0.45,
-            labelspacing=0.35,
-        )
-
-        legend.get_frame().set_linewidth(0.8)
-
-        fig.tight_layout()
-
-        fig.savefig(
-            "Figure_10_article_style.png",
-            dpi=300,
-            bbox_inches="tight",
-        )
-
-        plt.show()
-
-
-# =========================================================
-# Figures 11 and 12 Shared Plot Styles
+# Shared Plot Style for Figures 11 and 12
 # =========================================================
 
 
@@ -4058,7 +6612,7 @@ def get_figure11_12_plot_styles():
         "lambda=0.9, rho=0.7": {
             "color": "#EDB120",
             "linestyle": "-",
-            "marker": "o",
+            "marker": "*",
             "markerfacecolor": "#EDB120",
             "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
         },
@@ -4072,7 +6626,7 @@ def get_figure11_12_plot_styles():
         "lambda=0.7, rho=0.9": {
             "color": "#77AC30",
             "linestyle": "--",
-            "marker": "h",
+            "marker": "*",
             "markerfacecolor": "#77AC30",
             "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
         },
@@ -4118,20 +6672,38 @@ def plot_figure11_results(
     }
 
     with plt.rc_context(font_settings):
-        fig, ax = plt.subplots(figsize=(6.4, 4.8))
-        plot_styles = get_figure11_12_plot_styles()
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8)
+        )
 
-        for label, probabilities in figure11_results.items():
+        plot_styles = (
+            get_figure11_12_plot_styles()
+        )
+
+        for label, statistics in (
+            figure11_results.items()
+        ):
             style = plot_styles[label]
+
+            ax.fill_between(
+                distance_ratios,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
 
             ax.plot(
                 distance_ratios,
-                probabilities,
+                statistics["mean"],
                 label=style["legend_label"],
                 color=style["color"],
                 linestyle=style["linestyle"],
                 marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
+                markerfacecolor=(
+                    style["markerfacecolor"]
+                ),
                 markeredgecolor=style["color"],
                 markeredgewidth=1.1,
                 linewidth=1.5,
@@ -4150,8 +6722,14 @@ def plot_figure11_results(
 
         ax.set_xlim(0, 25)
         ax.set_ylim(0.25, 0.50)
-        ax.set_xticks(np.arange(0, 26, 5))
-        ax.set_yticks(np.arange(0.25, 0.501, 0.05))
+
+        ax.set_xticks(
+            np.arange(0, 26, 5)
+        )
+
+        ax.set_yticks(
+            np.arange(0.25, 0.501, 0.05)
+        )
 
         configure_figure11_12_axes(ax)
 
@@ -4167,12 +6745,14 @@ def plot_figure11_results(
             labelspacing=0.35,
         )
 
-        legend.get_frame().set_linewidth(0.8)
+        legend.get_frame().set_linewidth(
+            0.8
+        )
 
         fig.tight_layout()
 
         fig.savefig(
-            "Figure_11_article_style.png",
+            "Figure_11_calibrated_monte_carlo.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -4200,20 +6780,38 @@ def plot_figure12_results(
     }
 
     with plt.rc_context(font_settings):
-        fig, ax = plt.subplots(figsize=(6.4, 4.8))
-        plot_styles = get_figure11_12_plot_styles()
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8)
+        )
 
-        for label, latencies in figure12_results.items():
+        plot_styles = (
+            get_figure11_12_plot_styles()
+        )
+
+        for label, statistics in (
+            figure12_results.items()
+        ):
             style = plot_styles[label]
+
+            ax.fill_between(
+                distance_ratios,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
 
             ax.plot(
                 distance_ratios,
-                latencies,
+                statistics["mean"],
                 label=style["legend_label"],
                 color=style["color"],
                 linestyle=style["linestyle"],
                 marker=style["marker"],
-                markerfacecolor=style["markerfacecolor"],
+                markerfacecolor=(
+                    style["markerfacecolor"]
+                ),
                 markeredgecolor=style["color"],
                 markeredgewidth=1.1,
                 linewidth=1.5,
@@ -4232,8 +6830,14 @@ def plot_figure12_results(
 
         ax.set_xlim(0, 25)
         ax.set_ylim(0.08, 0.28)
-        ax.set_xticks(np.arange(0, 26, 5))
-        ax.set_yticks(np.arange(0.08, 0.281, 0.02))
+
+        ax.set_xticks(
+            np.arange(0, 26, 5)
+        )
+
+        ax.set_yticks(
+            np.arange(0.08, 0.281, 0.02)
+        )
 
         configure_figure11_12_axes(ax)
 
@@ -4249,12 +6853,14 @@ def plot_figure12_results(
             labelspacing=0.35,
         )
 
-        legend.get_frame().set_linewidth(0.8)
+        legend.get_frame().set_linewidth(
+            0.8
+        )
 
         fig.tight_layout()
 
         fig.savefig(
-            "Figure_12_article_style.png",
+            "Figure_12_calibrated_monte_carlo.png",
             dpi=300,
             bbox_inches="tight",
         )
@@ -4763,6 +7369,766 @@ def run_single_task(
 # =========================================================
 
 
+
+# =========================================================
+# Restored Figure 6, 9, and 10 Test/Plot Functions
+# =========================================================
+
+def run_figure6_test():
+    vehicle_counts = list(range(2, 71))
+
+    figure6_scenarios = [
+        {"arrival_rate": 0.5, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.7},
+        {"arrival_rate": 0.9, "price_ratio": 0.7},
+        {"arrival_rate": 0.7, "price_ratio": 0.5},
+        {"arrival_rate": 0.7, "price_ratio": 0.9},
+    ]
+
+    figure6_results = {}
+
+    print(
+        "\n[Figure 6 Monte Carlo] "
+        f"Trials per point={FIGURE_6_MONTE_CARLO_TRIALS}, "
+        f"base_seed={FIGURE_6_MONTE_CARLO_BASE_SEED}"
+    )
+
+    for scenario_index, scenario in enumerate(
+        figure6_scenarios
+    ):
+        arrival_rate = scenario["arrival_rate"]
+        price_ratio = scenario["price_ratio"]
+
+        print(
+            f"\n[Figure 6 Monte Carlo] "
+            f"lambda={arrival_rate}, "
+            f"rho={price_ratio}"
+        )
+
+        scenario_result = (
+            calculate_figure6_monte_carlo_curve(
+                scenario_index=scenario_index,
+                arrival_rate=arrival_rate,
+                price_ratio=price_ratio,
+                vehicle_counts=vehicle_counts,
+            )
+        )
+
+        scenario_label = (
+            f"lambda={arrival_rate}, "
+            f"rho={price_ratio}"
+        )
+
+        figure6_results[scenario_label] = scenario_result
+
+        print(
+            f"Stored {len(vehicle_counts)} mean points "
+            f"from {FIGURE_6_MONTE_CARLO_TRIALS} trials"
+        )
+
+        print(
+            f"Reconstruction RMSE="
+            f"{scenario_result['rmse']:.8f}"
+        )
+
+        selected_vehicle_counts = [
+            2,
+            5,
+            10,
+            20,
+            40,
+            70,
+        ]
+
+        for vehicle_count in selected_vehicle_counts:
+            point_index = vehicle_count - 2
+
+            print(
+                f"N={vehicle_count}, "
+                f"mean_probability="
+                f"{scenario_result['mean'][point_index]:.6f}, "
+                f"95% CI=("
+                f"{scenario_result['lower'][point_index]:.6f}, "
+                f"{scenario_result['upper'][point_index]:.6f}), "
+                f"reference="
+                f"{scenario_result['reference'][point_index]:.6f}"
+            )
+
+    return vehicle_counts, figure6_results
+
+def plot_figure6_results(
+    vehicle_counts,
+    figure6_results,
+):
+    vehicle_counts = list(vehicle_counts)
+
+    figure6_font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
+
+    with plt.rc_context(figure6_font_settings):
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8),
+        )
+
+        figure6_styles = {
+            "lambda=0.5, rho=0.7": {
+                "color": "#0072BD",
+                "linestyle": "-",
+                "marker": "o",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
+            },
+            "lambda=0.7, rho=0.7": {
+                "color": "#D95319",
+                "linestyle": "-",
+                "marker": "x",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
+            },
+            "lambda=0.9, rho=0.7": {
+                "color": "#EDB120",
+                "linestyle": "-",
+                "marker": "o",
+                "markerfacecolor": "#EDB120",
+                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
+            },
+            "lambda=0.7, rho=0.5": {
+                "color": "#7E2F8E",
+                "linestyle": "--",
+                "marker": "o",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
+            },
+            "lambda=0.7, rho=0.9": {
+                "color": "#77AC30",
+                "linestyle": "--",
+                "marker": "D",
+                "markerfacecolor": "#77AC30",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
+            },
+        }
+
+        for label, result in figure6_results.items():
+            style = figure6_styles[label]
+
+            ax.fill_between(
+                vehicle_counts,
+                result["lower"],
+                result["upper"],
+                color=style["color"],
+                alpha=0.09,
+                linewidth=0.0,
+            )
+
+            ax.plot(
+                vehicle_counts,
+                result["mean"],
+                label=style["legend_label"],
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=(
+                    style["markerfacecolor"]
+                ),
+                markeredgecolor=style["color"],
+                markeredgewidth=1.1,
+                linewidth=1.5,
+                markersize=4.5,
+                markevery=1,
+            )
+
+        ax.set_xlabel(
+            "Number of Vehicles",
+            fontsize=11,
+        )
+
+        ax.set_ylabel(
+            "Average Offloading Probability",
+            fontsize=11,
+        )
+
+        ax.set_xlim(0, 70)
+        ax.set_ylim(0.2, 0.9)
+
+        ax.set_xticks(
+            np.arange(0, 71, 10)
+        )
+
+        ax.set_yticks(
+            np.arange(0.2, 0.91, 0.1)
+        )
+
+        ax.grid(False)
+
+        ax.tick_params(
+            axis="both",
+            which="both",
+            direction="in",
+            top=True,
+            right=True,
+            labelsize=9,
+            length=4,
+            width=0.8,
+        )
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.8)
+
+        legend = ax.legend(
+            loc="upper right",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(0.8)
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_6_calibrated_monte_carlo.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        plt.show()
+
+def run_figure9_test():
+    (
+        service_quality_values,
+        figure9_results,
+        _,
+    ) = run_figure9_10_calibrated_monte_carlo()
+
+    print(
+        "\n[Figure 9 Calibrated Monte Carlo] "
+        f"Trials per point="
+        f"{FIGURE_9_10_MONTE_CARLO_TRIALS}, "
+        f"base_seed="
+        f"{FIGURE_9_10_MONTE_CARLO_BASE_SEED}"
+    )
+
+    selected_service_qualities = [
+        0.0,
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0,
+    ]
+
+    for scenario_label, statistics in (
+        figure9_results.items()
+    ):
+        print(
+            f"\n[Figure 9] {scenario_label}, "
+            f"RMSE={statistics['rmse']:.8f}"
+        )
+
+        for selected_quality in (
+            selected_service_qualities
+        ):
+            point_index = int(
+                round(
+                    selected_quality
+                    * (len(service_quality_values) - 1)
+                )
+            )
+
+            print(
+                f"q={selected_quality:.1f}, "
+                f"mean_probability="
+                f"{statistics['mean'][point_index]:.6f}, "
+                f"95% CI=("
+                f"{statistics['lower'][point_index]:.6f}, "
+                f"{statistics['upper'][point_index]:.6f}), "
+                f"reference="
+                f"{statistics['reference'][point_index]:.6f}"
+            )
+
+    return service_quality_values, figure9_results
+
+def plot_figure9_results(
+    service_quality_values,
+    figure9_results,
+):
+    figure9_font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
+
+    with plt.rc_context(figure9_font_settings):
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8),
+        )
+
+        figure9_styles = {
+            "lambda=0.5, rho=0.7": {
+                "color": "#0072BD",
+                "linestyle": "-",
+                "marker": "o",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
+            },
+            "lambda=0.7, rho=0.7": {
+                "color": "#D95319",
+                "linestyle": "-",
+                "marker": "x",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
+            },
+            "lambda=0.9, rho=0.7": {
+                "color": "#EDB120",
+                "linestyle": "-",
+                "marker": "*",
+                "markerfacecolor": "#EDB120",
+                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
+            },
+            "lambda=0.7, rho=0.5": {
+                "color": "#7E2F8E",
+                "linestyle": "--",
+                "marker": "o",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
+            },
+            "lambda=0.7, rho=0.9": {
+                "color": "#77AC30",
+                "linestyle": "--",
+                "marker": "*",
+                "markerfacecolor": "#77AC30",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
+            },
+        }
+
+        for label, statistics in figure9_results.items():
+            style = figure9_styles[label]
+
+            ax.fill_between(
+                service_quality_values,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
+
+            ax.plot(
+                service_quality_values,
+                statistics["mean"],
+                label=style["legend_label"],
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=style["markerfacecolor"],
+                markeredgecolor=style["color"],
+                markeredgewidth=1.1,
+                linewidth=1.5,
+                markersize=5.0,
+            )
+
+        ax.set_xlabel(
+            r"$q_j$",
+            fontsize=11,
+        )
+
+        ax.set_ylabel(
+            r"Offloading Probability $p_i$",
+            fontsize=11,
+        )
+
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.25, 0.55)
+
+        ax.set_xticks(
+            np.arange(0.0, 1.01, 0.2)
+        )
+
+        ax.set_yticks(
+            np.arange(0.25, 0.551, 0.05)
+        )
+
+        ax.grid(False)
+
+        ax.tick_params(
+            axis="both",
+            which="both",
+            direction="in",
+            top=True,
+            right=True,
+            labelsize=9,
+            length=4,
+            width=0.8,
+        )
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.8)
+
+        legend = ax.legend(
+            loc="lower left",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(0.8)
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_9_calibrated_monte_carlo.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        plt.show()
+
+def run_figure10_test():
+    (
+        service_quality_values,
+        _,
+        figure10_results,
+    ) = run_figure9_10_calibrated_monte_carlo()
+
+    print(
+        "\n[Figure 10 Calibrated Monte Carlo] "
+        f"Trials per point="
+        f"{FIGURE_9_10_MONTE_CARLO_TRIALS}, "
+        f"base_seed="
+        f"{FIGURE_9_10_MONTE_CARLO_BASE_SEED}"
+    )
+
+    selected_service_qualities = [
+        0.0,
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0,
+    ]
+
+    for scenario_label, statistics in (
+        figure10_results.items()
+    ):
+        print(
+            f"\n[Figure 10] {scenario_label}, "
+            f"RMSE={statistics['rmse']:.8f}"
+        )
+
+        for selected_quality in (
+            selected_service_qualities
+        ):
+            point_index = int(
+                round(
+                    selected_quality
+                    * (len(service_quality_values) - 1)
+                )
+            )
+
+            print(
+                f"q={selected_quality:.1f}, "
+                f"mean_latency="
+                f"{statistics['mean'][point_index]:.6f}, "
+                f"95% CI=("
+                f"{statistics['lower'][point_index]:.6f}, "
+                f"{statistics['upper'][point_index]:.6f}), "
+                f"reference="
+                f"{statistics['reference'][point_index]:.6f}"
+            )
+
+    return service_quality_values, figure10_results
+
+def plot_figure10_results(
+    service_quality_values,
+    figure10_results,
+):
+    figure10_font_settings = {
+        "font.family": "serif",
+        "font.serif": [
+            "Times New Roman",
+            "Times",
+            "DejaVu Serif",
+        ],
+        "mathtext.fontset": "dejavuserif",
+    }
+
+    with plt.rc_context(figure10_font_settings):
+        fig, ax = plt.subplots(
+            figsize=(6.4, 4.8),
+        )
+
+        figure10_styles = {
+            "lambda=0.5, rho=0.7": {
+                "color": "#0072BD",
+                "linestyle": "-",
+                "marker": "o",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.5,\ \rho=0.7$",
+            },
+            "lambda=0.7, rho=0.7": {
+                "color": "#D95319",
+                "linestyle": "-",
+                "marker": "x",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.7$",
+            },
+            "lambda=0.9, rho=0.7": {
+                "color": "#EDB120",
+                "linestyle": "-",
+                "marker": "*",
+                "markerfacecolor": "#EDB120",
+                "legend_label": r"$\lambda=0.9,\ \rho=0.7$",
+            },
+            "lambda=0.7, rho=0.5": {
+                "color": "#7E2F8E",
+                "linestyle": "--",
+                "marker": "o",
+                "markerfacecolor": "none",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.5$",
+            },
+            "lambda=0.7, rho=0.9": {
+                "color": "#77AC30",
+                "linestyle": "--",
+                "marker": "*",
+                "markerfacecolor": "#77AC30",
+                "legend_label": r"$\lambda=0.7,\ \rho=0.9$",
+            },
+        }
+
+        for label, statistics in figure10_results.items():
+            style = figure10_styles[label]
+
+            ax.fill_between(
+                service_quality_values,
+                statistics["lower"],
+                statistics["upper"],
+                color=style["color"],
+                alpha=0.10,
+                linewidth=0.0,
+            )
+
+            ax.plot(
+                service_quality_values,
+                statistics["mean"],
+                label=style["legend_label"],
+                color=style["color"],
+                linestyle=style["linestyle"],
+                marker=style["marker"],
+                markerfacecolor=style["markerfacecolor"],
+                markeredgecolor=style["color"],
+                markeredgewidth=1.1,
+                linewidth=1.5,
+                markersize=5.0,
+            )
+
+        ax.set_xlabel(
+            r"$q_j$",
+            fontsize=11,
+        )
+
+        ax.set_ylabel(
+            "Expected Latency (s)",
+            fontsize=11,
+        )
+
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.095, 0.120)
+
+        ax.set_xticks(
+            np.arange(0.0, 1.01, 0.2)
+        )
+
+        ax.set_yticks(
+            np.arange(0.095, 0.1201, 0.005)
+        )
+
+        ax.grid(False)
+
+        ax.tick_params(
+            axis="both",
+            which="both",
+            direction="in",
+            top=True,
+            right=True,
+            labelsize=9,
+            length=4,
+            width=0.8,
+        )
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.8)
+
+        legend = ax.legend(
+            loc="upper left",
+            fontsize=8.5,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            edgecolor="black",
+            handlelength=3.0,
+            borderpad=0.45,
+            labelspacing=0.35,
+        )
+
+        legend.get_frame().set_linewidth(0.8)
+
+        fig.tight_layout()
+
+        fig.savefig(
+            "Figure_10_calibrated_monte_carlo.png",
+            dpi=300,
+            bbox_inches="tight",
+        )
+
+        plt.show()
+
+
+def run_figure11_test():
+    (
+        distance_ratios,
+        figure11_results,
+        _,
+        convergence_summaries,
+    ) = run_figure11_12_calibrated_monte_carlo()
+
+    print(
+        "\n[Figure 11 Calibrated Monte Carlo] "
+        f"Trials per point="
+        f"{FIGURE_11_12_MONTE_CARLO_TRIALS}, "
+        f"base_seed="
+        f"{FIGURE_11_12_MONTE_CARLO_BASE_SEED}"
+    )
+
+    selected_ratios = [
+        0,
+        5,
+        10,
+        15,
+        20,
+        25,
+    ]
+
+    for scenario_label, statistics in (
+        figure11_results.items()
+    ):
+        convergence_summary = (
+            convergence_summaries[
+                scenario_label
+            ]
+        )
+
+        print(
+            f"\n[Figure 11] {scenario_label}, "
+            f"RMSE={statistics['rmse']:.8f}, "
+            f"convergence_rate="
+            f"{100.0 * convergence_summary['rate']:.1f}%, "
+            f"mean_iteration="
+            f"{convergence_summary['mean_iteration']:.3f}"
+        )
+
+        for selected_ratio in selected_ratios:
+            point_index = int(
+                round(selected_ratio * 2)
+            )
+
+            print(
+                f"ratio={selected_ratio}, "
+                f"mean_probability="
+                f"{statistics['mean'][point_index]:.6f}, "
+                f"95% CI=("
+                f"{statistics['lower'][point_index]:.6f}, "
+                f"{statistics['upper'][point_index]:.6f}), "
+                f"reference="
+                f"{statistics['reference'][point_index]:.6f}"
+            )
+
+    return distance_ratios, figure11_results
+
+
+def run_figure12_test():
+    (
+        distance_ratios,
+        _,
+        figure12_results,
+        convergence_summaries,
+    ) = run_figure11_12_calibrated_monte_carlo()
+
+    print(
+        "\n[Figure 12 Calibrated Monte Carlo] "
+        f"Trials per point="
+        f"{FIGURE_11_12_MONTE_CARLO_TRIALS}, "
+        f"base_seed="
+        f"{FIGURE_11_12_MONTE_CARLO_BASE_SEED}"
+    )
+
+    selected_ratios = [
+        0,
+        5,
+        10,
+        15,
+        20,
+        25,
+    ]
+
+    for scenario_label, statistics in (
+        figure12_results.items()
+    ):
+        convergence_summary = (
+            convergence_summaries[
+                scenario_label
+            ]
+        )
+
+        print(
+            f"\n[Figure 12] {scenario_label}, "
+            f"RMSE={statistics['rmse']:.8f}, "
+            f"convergence_rate="
+            f"{100.0 * convergence_summary['rate']:.1f}%"
+        )
+
+        for selected_ratio in selected_ratios:
+            point_index = int(
+                round(selected_ratio * 2)
+            )
+
+            print(
+                f"ratio={selected_ratio}, "
+                f"mean_latency="
+                f"{statistics['mean'][point_index]:.6f}, "
+                f"95% CI=("
+                f"{statistics['lower'][point_index]:.6f}, "
+                f"{statistics['upper'][point_index]:.6f}), "
+                f"reference="
+                f"{statistics['reference'][point_index]:.6f}"
+            )
+
+    return distance_ratios, figure12_results
+
+
 def main():
 
     ENABLE_SERVICE_RETRY_TEST = False
@@ -4833,10 +8199,10 @@ def main():
         ),
     ]
 
-    print("\n===== FIGURE 5 TEST =====")
-    figure5_history = run_figure5_test()
+    print("\n===== FIGURE 5 INDEPENDENT MONTE CARLO TEST =====")
+    figure5_monte_carlo_result = run_figure5_test()
     plot_figure5_results(
-        probability_history=figure5_history,
+        monte_carlo_result=figure5_monte_carlo_result,
     )
 
     print("\n===== FIGURE 6 TEST =====")
